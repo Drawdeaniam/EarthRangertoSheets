@@ -1,3 +1,5 @@
+import os
+import json
 import requests
 import pandas as pd
 import re
@@ -6,11 +8,11 @@ from google.oauth2.service_account import Credentials
 
 # --- 1. CONFIGURATION ---
 ER_DOMAIN = "ack.pamdas.org"
-ER_TOKEN = "v8K9n2P5mR7jW1qX4zB6tS3hL9vY0uN8eC2xA5mQ"
-SHEET_ID = "YOUR_GOOGLE_SHEET_ID_HERE"
-SERVICE_ACCOUNT_FILE = "service_account.json"
+ER_TOKEN = os.getenv("ER_TOKEN")
+SHEET_ID = os.getenv("SHEET_ID")
+SERVICE_ACCOUNT_JSON = os.getenv("SERVICE_ACCOUNT_JSON")
 
-# --- 2. SPECIES REFERENCE DICTIONARY ---
+# Dictionary-based Trophic Mapping 
 SPECIES_REFERENCE = {
     "cheetah": "Carnivore", "lion": "Carnivore", "leopard": "Carnivore", 
     "spotted hyena": "Carnivore", "striped hyena": "Carnivore", "jackal": "Carnivore", 
@@ -42,79 +44,124 @@ REPORT_TYPE_MAP = {
     "transect_domestic_sight": "Transect - Domestic Animal Type",
     "transect_wildanimal_sight": "Transect - Wild Animal Type",
     "transectinfo_ack": "Transect Info"
-}
+} [cite: 1, 5]
 
-# --- 3. LOGIC FUNCTIONS ---
+# --- 2. CLEANING UTILITIES ---
+def normalize_species_name(name):
+    """Clean and standardize species names[cite: 20, 21]."""
+    if not isinstance(name, str) or name.lower() == 'nan': return ""
+    name = re.sub(r"\s*\(unidentified\)", "", name, flags=re.IGNORECASE).lower().strip()
+    # Standardize common variations [cite: 21]
+    name = name.replace("dik dik", "dikdik")
+    name = name.replace("zebra grevy's", "grevy's zebra")
+    name = name.replace("gazelle grant's", "grant's gazelle")
+    return name
+
+def reformat_transect(name):
+    """Convert 'A - Transect' to 'Transect A'[cite: 23, 24]."""
+    if isinstance(name, str):
+        match = re.match(r"([A-Z])\s*-\s*(.*)", name)
+        if match: return f"{match.group(2).strip()} {match.group(1)}"
+    return name
+
+# --- 3. DATA PROCESSING ---
 def fetch_er_data():
+    """Fetch raw event data from EarthRanger API[cite: 1, 2]."""
     headers = {"Authorization": f"Bearer {ER_TOKEN}"}
     url = f"https://{ER_DOMAIN}/api/v1.0/activity/events/?page_size=300"
     resp = requests.get(url, headers=headers)
-    return resp.json().get('data', []) if resp.status_code == 200 else []
+    if resp.status_code == 200:
+        json_res = resp.json()
+        return json_res.get('data', {}).get('results', []) or json_res.get('data', [])
+    return []
 
-def normalize_species_name(name):
-    if not isinstance(name, str) or name.lower() == 'nan': return ""
-    # Standardize to lowercase and remove unidentified tags
-    name = re.sub(r"\s*\(unidentified\)", "", name, flags=re.IGNORECASE).lower().strip()
-    # Ensure "dik dik" matches the dictionary "dikdik"
-    return name.replace("dik dik", "dikdik")
-
-def clean_and_process(raw_data):
+def clean_and_process(data):
+    """Apply thorough cleaning logic from Cleaning ER text."""
     rows = []
-    for event in raw_data:
+    for event in data:
         details = event.get('event_details', {})
-        internal_val = event.get('event_type', '')
-        cat_name = "transect" if "transect" in internal_val.lower() else "patrol"
-        loc_val = details.get('routineack_block') or details.get('transectack_block') or details.get('transects') or ""
+        internal_val = event.get('event_type')
+        category_obj = event.get('event_category', {})
+        cat_name = category_obj.get('value', '').lower() if isinstance(category_obj, dict) else ""
+        if not cat_name: 
+            cat_name = "transect" if "transect" in internal_val.lower() else "patrol" [cite: 6, 7]
+
+        # Consolidate Species [cite: 28, 29]
+        dom_spec = details.get('patrolack_speciesdomestic') or details.get('routineack_speciesdomestic')
+        wild_spec = details.get('patrolackwild_specieswild') or details.get('routineack_specieswild')
+        species_raw = dom_spec if dom_spec else wild_spec
+        norm_species = normalize_species_name(str(species_raw))
+
+        # Rain Logic [cite: 13, 14, 23]
+        rain_val = details.get('routineack_lastrain') or details.get('walktransect_lastrain')
 
         rows.append({
-            'Report_Id': event.get('serial_number'),
-            'Report_Type': REPORT_TYPE_MAP.get(internal_val, event.get('event_type_label')),
-            'Reported_By': event.get('reported_by', {}).get('username', 'Unknown'),
-            'Reported_At_Raw': event.get('updated_at') or event.get('time'),
-            'Latitude': event.get('location', {}).get('latitude') if event.get('location') else None,
-            'Longitude': event.get('location', {}).get('longitude') if event.get('location') else None,
-            'Domestic_Animal_Species': details.get('patrolack_speciesdomestic'),
-            'Wild_Animal_Species': details.get('patrolackwild_specieswild'),
-            'Number': details.get('patrolack_nb') or details.get('patrolackwild_nb'),
-            'Blocks': loc_val if cat_name == "patrol" else "",
-            'Transects': loc_val if cat_name == "transect" else ""
+            'Report_Id': f"ER{event.get('serial_number')}",
+            'Report_Type': REPORT_TYPE_MAP.get(internal_val, event.get('event_type_label', internal_val)), [cite: 5]
+            'Reported_By': event.get('reported_by', {}).get('name', 'Unknown').replace(" ACK", ""), [cite: 23]
+            'Raw_Time': event.get('time'),
+            'Latitude': event.get('location', {}).get('latitude'),
+            'Longitude': event.get('location', {}).get('longitude'),
+            'Species': norm_species,
+            'Trophic': SPECIES_REFERENCE.get(norm_species, ""), [cite: 29]
+            'Number': details.get('patrolack_nb') or details.get('patrolackwild_nb') or details.get('routineack_nb'), [cite: 14]
+            'Rain': rain_val,
+            'Ground_Cover': str(details.get('patrolack_groundcover', '')),
+            'Habitat': str(details.get('patrolack_habitat', '')),
+            'Blocks': details.get('routineack_block') if "patrol" in cat_name else "",
+            'Transects': details.get('transectack_block') or details.get('transects') if "transect" in cat_name else "", [cite: 8]
+            'Attachments': len(event.get('files', [])) [cite: 13]
         })
     
     df = pd.DataFrame(rows)
     if df.empty: return df
 
-    # Time Handling
-    df["Reported_At"] = pd.to_datetime(df["Reported_At_Raw"]) + pd.Timedelta(hours=3)
+    # Timezone & Date Components (+3 Hours) 
+    df["Reported_At"] = pd.to_datetime(df["Raw_Time"]) + pd.Timedelta(hours=3)
+    df["Day"] = df["Reported_At"].dt.day
+    df["Month"] = df["Reported_At"].dt.month
+    df["Year"] = df["Reported_At"].dt.year
     df["Date"] = df["Reported_At"].dt.strftime("%d/%m/%Y")
+    df["Time"] = df["Reported_At"].dt.strftime("%I:%M %p")
+
+    # Group-based Start/End times 
+    def process_group(group):
+        group["StartTime"] = group["Time"].iloc[0]
+        group["EndTime"] = group["Time"].iloc[-1] if len(group) > 1 else ""
+        return group
+    df = df.groupby(["Report_Id", "Reported_By"], group_keys=False).apply(process_group)
+
+    # Regex Cleaning for Habitat/Cover 
+    df["Ground_Cover"] = df["Ground_Cover"].str.replace(r"^\((SG|BG|MHG)\)\s*", "", regex=True)
+    df["Habitat"] = df["Habitat"].str.replace(r"^\((.*?)\)$", r"\1", regex=True).str.strip()
+    df["Habitat"] = df["Habitat"].str.replace(r"^(OWL|CWL|BWL|[(]OWL[)]|[(]CWL[)])|[(]BWL[)]\s*", "", regex=True)
     
-    # SPECIES CATEGORIZATION
-    df["Species"] = df["Domestic_Animal_Species"].combine_first(df["Wild_Animal_Species"]).apply(normalize_species_name)
-    
-    # Apply the dictionary to create the Trophic Level column
-    df["Species_Category"] = df["Species"].map(SPECIES_REFERENCE).fillna("Unclassified")
-    
+    if "Transects" in df.columns:
+        df["Transects"] = df["Transects"].apply(reformat_transect) [cite: 24]
+
     return df.fillna("")
 
-# --- 4. UPLOAD ---
+# --- 4. GOOGLE SHEETS UPLOAD ---
 def push_to_sheets(df, tab_name):
+    """Securely upload data to specified Google Sheet tab."""
     if df.empty: return
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
+    info = json.loads(SERVICE_ACCOUNT_JSON)
+    creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     client = gspread.authorize(creds)
     sh = client.open_by_key(SHEET_ID)
-    
     try:
         worksheet = sh.worksheet(tab_name)
     except gspread.exceptions.WorksheetNotFound:
         worksheet = sh.add_worksheet(title=tab_name, rows="100", cols="20")
-    
     worksheet.clear()
     worksheet.update('A1', [df.columns.values.tolist()] + df.values.tolist())
 
-# --- RUN ---
-data = fetch_er_data()
-if data:
-    final_df = clean_and_process(data)
-    push_to_sheets(final_df[final_df["Report_Type"].str.contains("Patrol", na=False)], "RP")
-    push_to_sheets(final_df[final_df["Report_Type"].str.contains("Transect", na=False)], "WT")
-    print("🚀 RP and WT Tabs updated with Species Categories!")
+# --- EXECUTION ---
+if __name__ == "__main__":
+    raw_data = fetch_er_data()
+    if raw_data:
+        final_df = clean_and_process(raw_data)
+        # Final Split into RP (Patrol) and WT (Transect) [cite: 30, 32]
+        push_to_sheets(final_df[final_df["Report_Type"].str.contains("Patrol", case=False)], "RP")
+        push_to_sheets(final_df[final_df["Report_Type"].str.contains("Transect", case=False)], "WT")
+        print("✅ RP and WT updated with thorough cleaning and internal trophic mapping.")
