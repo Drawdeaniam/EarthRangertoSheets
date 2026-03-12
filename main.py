@@ -12,7 +12,6 @@ ER_DOMAIN = "ack.pamdas.org"
 ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
-# Service Account credentials
 SERVICE_ACCOUNT_JSON = {
   "type": "service_account",
   "project_id": "earthranger-integration",
@@ -54,46 +53,11 @@ j8UmkktM6PXbocwralB/8Q==
   "universe_domain": "googleapis.com"
 }
 
-# --- 2. REFERENCE MAPS ---
-SPECIES_REFERENCE = {
-    "cheetah": "Carnivore", "lion": "Carnivore", "leopard": "Carnivore", 
-    "spotted hyena": "Carnivore", "striped hyena": "Carnivore", "jackal": "Carnivore", 
-    "caracal": "Carnivore", "african wild dog": "Carnivore", "serval": "Carnivore",
-    "hare": "Preferred cheetah prey", "hyrax": "Preferred cheetah prey", "dikdik": "Preferred cheetah prey", 
-    "guinea fowl": "Preferred cheetah prey", "yellow-necked spurfowl": "Preferred cheetah prey", 
-    "grant's gazelle": "Preferred cheetah prey", "gerenuk": "Preferred cheetah prey", 
-    "klipspringer": "Preferred cheetah prey", "lesser kudu": "Preferred cheetah prey", 
-    "impala": "Preferred cheetah prey", "steenbuck": "Preferred cheetah prey", 
-    "bushbuck": "Preferred cheetah prey", "thomson's gazelle": "Preferred cheetah prey", 
-    "duiker": "Preferred cheetah prey", "springhare": "Preferred cheetah prey",
-    "vervet monkey": "Sometimes cheetah prey", "goats": "Sometimes cheetah prey", 
-    "sheep": "Sometimes cheetah prey", "greater kudu": "Sometimes cheetah prey", 
-    "ostrich": "Sometimes cheetah prey", "warthog": "Sometimes cheetah prey",
-    "eland": "Seldom or never cheetah prey", "grevy zebra": "Seldom or never cheetah prey", 
-    "common zebra": "Seldom or never cheetah prey", "baboon": "Seldom or never cheetah prey", 
-    "cattle": "Seldom or never cheetah prey", "camel": "Seldom or never cheetah prey", 
-    "buffalo": "Seldom or never cheetah prey", "hippo": "Seldom or never cheetah prey", 
-    "giraffe": "Seldom or never cheetah prey", "elephant": "Seldom or never cheetah prey", 
-    "bushpig": "Seldom or never cheetah prey", "donkey": "Seldom or never cheetah prey",
-    "bat-eared fox": "Unclassified", "african civet": "Unclassified", "genet": "Unclassified", 
-    "domestic dog": "Unclassified", "honey badger": "Unclassified", "kori bustard": "Unclassified", "vulture": "Unclassified"
-}
-
-REPORT_TYPE_MAP = {
-    "patrol_domesticanimal": "Patrol - Domestic Animal Sighting",
-    "patrol_info_ack": "Patrol Info",
-    "patrolwildanimal_sight": "Patrol - Wild Animal Type",
-    "transect_domestic_sight": "Transect - Domestic Animal Type",
-    "transect_wildanimal_sight": "Transect - Wild Animal Type",
-    "transectinfo_ack": "Transect Info"
-}
-
-# --- 3. HELPERS ---
+# --- 2. HELPERS ---
 def normalize_species_name(name):
     if not isinstance(name, str) or name.lower() == 'nan' or not name.strip(): return ""
     name = re.sub(r"\s*\(unidentified\)", "", name, flags=re.IGNORECASE).lower().strip()
-    name = name.replace("dik dik", "dikdik").replace("zebra grevy's", "grevy's zebra")
-    return name
+    return name.replace("dik dik", "dikdik").replace("zebra grevy's", "grevy's zebra")
 
 def fetch_er_data():
     headers = {"Authorization": f"Bearer {ER_TOKEN}"}
@@ -111,30 +75,21 @@ def clean_and_process(data):
     rows = []
     for event in data:
         details = event.get('event_details', {})
+        
+        # Determine internal type and normalize names
         internal_val = event.get('event_type', '')
-        mapped_type = REPORT_TYPE_MAP.get(internal_val, event.get('event_type_label', internal_val))
         
         dom_spec = details.get('patrolack_speciesdomestic') or details.get('routineack_speciesdomestic')
         wild_spec = details.get('patrolackwild_specieswild') or details.get('routineack_specieswild')
         norm_species = normalize_species_name(str(dom_spec if dom_spec else wild_spec))
 
-        cat_obj = event.get('event_category', {})
-        cat_name = cat_obj.get('value', '').lower() if isinstance(cat_obj, dict) else ""
-        if not cat_name: 
-            cat_name = "transect" if "transect" in internal_val.lower() else "patrol"
-
-        loc_val = details.get('routineack_block') or details.get('transectack_block') or details.get('transects') or ""
-
-        # --- FIX APPLIED HERE ---
         rows.append({
             'Report_Id': f"ER{event.get('serial_number')}",
-            'Report_Type': mapped_type,
+            'Report_Type': event.get('event_type_label', internal_val),
             'Reported_By': event.get('reported_by', {}).get('display_name', 'Unknown'),
             'Date': event.get('time', ''),
             'Species': norm_species,
-            'Species_Group': SPECIES_REFERENCE.get(norm_species, "Unclassified"),
-            'Category': cat_name,
-            'Location': loc_val
+            'Location': details.get('routineack_block') or details.get('transectack_block') or ""
         })
     return rows
 
@@ -147,21 +102,35 @@ def update_google_sheet(rows):
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_JSON, scopes=scope)
         client = gspread.authorize(creds)
-        sheet = client.open_by_key(SHEET_ID).sheet1
         
+        # Open the specific spreadsheet
+        spreadsheet = client.open_by_key(SHEET_ID)
+        
+        # Prepare data for upload
         df = pd.DataFrame(rows)
-        sheet.clear()
-        sheet.update([df.columns.values.tolist()] + df.values.tolist())
-        print("✅ Sheet updated successfully!")
+        data_to_upload = [df.columns.values.tolist()] + df.values.tolist()
+
+        # TARGET ONLY THESE TWO TABS
+        target_tabs = ["Sheet6", "Sheet7"]
+
+        for tab_name in target_tabs:
+            try:
+                worksheet = spreadsheet.worksheet(tab_name)
+                worksheet.clear() # Clears the specific tab
+                worksheet.update(data_to_upload)
+                print(f"✅ Successfully updated {tab_name}")
+            except gspread.exceptions.WorksheetNotFound:
+                print(f"⚠️ Tab '{tab_name}' not found. Skipping...")
+
     except Exception as e:
         print(f"❌ Google Sheets Error: {e}")
 
-# --- 4. EXECUTION ---
+# --- 3. EXECUTION ---
 if __name__ == "__main__":
-    print("🚀 Fetching data from EarthRanger...")
+    print("🚀 Starting sync...")
     raw_data = fetch_er_data()
     if raw_data:
         processed_data = clean_and_process(raw_data)
         update_google_sheet(processed_data)
     else:
-        print("❌ No data found.")
+        print("❌ No data fetched from EarthRanger.")
