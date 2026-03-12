@@ -527,6 +527,19 @@ def clean_dataframe(df):
     patrol_mask   = df["Report_Type"].astype(str).str.contains("patrol",   na=False, case=False)
     transect_mask = df["Report_Type"].astype(str).str.contains("transect", na=False, case=False)
 
+    def concat_lat_lon(lat_series, lon_series):
+        """Return 'lat,lon' for rows where both values are present, else empty string."""
+        def _join(lat, lon):
+            lat = str(lat).strip()
+            lon = str(lon).strip()
+            if lat and lon and lat not in ("nan", "None", "") and lon not in ("nan", "None", ""):
+                return f"{lat},{lon}"
+            return ""
+        return pd.Series(
+            [_join(la, lo) for la, lo in zip(lat_series, lon_series)],
+            index=lat_series.index,
+        )
+
     def build_patrol_output(mask):
         """Build the Sheet6 (Patrol) DataFrame with the required column layout."""
         out = pd.DataFrame({
@@ -548,7 +561,7 @@ def clean_dataframe(df):
             "UTM North(Y)":   "",
             "Deg_Latitude":   col("Latitude").loc[mask],
             "Deg_Longitude":  col("Longitude").loc[mask],
-            " ":              "",                                       # empty col after Longitude
+            "Coordinates":    concat_lat_lon(col("Latitude").loc[mask], col("Longitude").loc[mask]),
             "Species":        title_col(species_col.loc[mask]),
             "Trophic":        title_col(trophic_col.loc[mask]),
             "Number":         col("Number").loc[mask],
@@ -598,7 +611,7 @@ def clean_dataframe(df):
             "UTM North(Y)":   "",
             "Deg_Latitude":   col("Latitude").loc[idx],
             "Deg_Longitude":  col("Longitude").loc[idx],
-            " ":              "",                                       # empty col after Longitude
+            "Coordinates":    concat_lat_lon(col("Latitude").loc[idx], col("Longitude").loc[idx]),
             "Species":        title_col(species_col.loc[idx]),
             "Trophic":        title_col(trophic_col.loc[idx]),
             "Number":         col("Number").loc[idx],
