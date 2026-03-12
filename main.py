@@ -11,6 +11,8 @@ from google.oauth2.service_account import Credentials
 ER_DOMAIN = "ack.pamdas.org"
 ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
+
+# The dictionary is handled directly; the script will sanitize the key internally.
 SERVICE_ACCOUNT_JSON = {
   "type": "service_account",
   "project_id": "earthranger-integration",
@@ -25,6 +27,7 @@ SERVICE_ACCOUNT_JSON = {
   "universe_domain": "googleapis.com"
 }
 
+# --- 2. SPECIES REFERENCE ---
 SPECIES_REFERENCE = {
     "cheetah": "Carnivore", "lion": "Carnivore", "leopard": "Carnivore", 
     "spotted hyena": "Carnivore", "striped hyena": "Carnivore", "jackal": "Carnivore", 
@@ -58,34 +61,45 @@ REPORT_TYPE_MAP = {
     "transectinfo_ack": "Transect Info"
 }
 
-# --- 2. HELPERS ---
+# --- 3. HELPERS ---
 def normalize_species_name(name):
-    if not isinstance(name, str) or name.lower() == 'nan': return ""
+    if not isinstance(name, str) or name.lower() == 'nan' or not name.strip(): return ""
     name = re.sub(r"\s*\(unidentified\)", "", name, flags=re.IGNORECASE).lower().strip()
     return name.replace("dik dik", "dikdik").replace("zebra grevy's", "grevy's zebra")
 
 def fetch_er_data():
     headers = {"Authorization": f"Bearer {ER_TOKEN}"}
     url = f"https://{ER_DOMAIN}/api/v1.0/activity/events/?page_size=300"
-    resp = requests.get(url, headers=headers)
-    if resp.status_code == 200:
-        json_res = resp.json()
-        return json_res.get('data', {}).get('results', []) or json_res.get('data', [])
-    print(f"❌ API Error: {resp.status_code}")
+    try:
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 200:
+            json_res = resp.json()
+            return json_res.get('data', {}).get('results', []) or json_res.get('data', [])
+        print(f"❌ API Error: {resp.status_code}")
+    except Exception as e:
+        print(f"❌ Connection Error: {e}")
     return []
 
-# --- 3. PROCESSING ---
 def clean_and_process(data):
     rows = []
     for event in data:
         details = event.get('event_details', {})
-        internal_val = event.get('event_type')
+        internal_val = event.get('event_type', '')
         
         mapped_type = REPORT_TYPE_MAP.get(internal_val, event.get('event_type_label', internal_val))
         
+        # Check for both domestic and wild species fields
         dom_spec = details.get('patrolack_speciesdomestic') or details.get('routineack_speciesdomestic')
         wild_spec = details.get('patrolackwild_specieswild') or details.get('routineack_specieswild')
         norm_species = normalize_species_name(str(dom_spec if dom_spec else wild_spec))
+
+        # Logic for Blocks vs Transects columns
+        cat_obj = event.get('event_category', {})
+        cat_name = cat_obj.get('value', '').lower() if isinstance(cat_obj, dict) else ""
+        if not cat_name: 
+            cat_name = "transect" if "transect" in internal_val.lower() else "patrol"
+
+        loc_val = details.get('routineack_block') or details.get('transectack_block') or details.get('transects') or ""
 
         rows.append({
             'Report_Id': f"ER{event.get('serial_number')}",
@@ -96,16 +110,17 @@ def clean_and_process(data):
             'Longitude': event.get('location', {}).get('longitude'),
             'Species': norm_species,
             'Trophic': SPECIES_REFERENCE.get(norm_species, ""),
-            'Number': details.get('patrolack_nb') or details.get('patrolackwild_nb'),
+            'Number': details.get('patrolack_nb') or details.get('patrolackwild_nb') or details.get('routineack_nb'),
+            'Blocks': loc_val if "patrol" in cat_name else "",
+            'Transects': loc_val if "transect" in cat_name else "",
             'Ground_Cover': str(details.get('patrolack_groundcover', '')),
-            'Habitat': str(details.get('patrolack_habitat', '')),
-            'Blocks': details.get('routineack_block', ''),
-            'Transects': details.get('transectack_block') or details.get('transects', '')
+            'Habitat': str(details.get('patrolack_habitat', ''))
         })
     
     df = pd.DataFrame(rows)
     if df.empty: return df
 
+    # Convert to EAT (GMT+3)
     df["Reported_At"] = pd.to_datetime(df["Raw_Time"]) + pd.Timedelta(hours=3)
     df["Date"] = df["Reported_At"].dt.strftime("%d/%m/%Y")
     df["Time"] = df["Reported_At"].dt.strftime("%I:%M %p")
@@ -114,8 +129,11 @@ def clean_and_process(data):
 
 # --- 4. EXPORT ---
 def push_to_sheets(df_dict):
-    # FIXED: removed json.loads() since SERVICE_ACCOUNT_JSON is already a dict
-    info = SERVICE_ACCOUNT_JSON 
+    # FIX: Service account info is a dict; sanitize the PEM key formatting
+    info = SERVICE_ACCOUNT_JSON.copy()
+    if "private_key" in info:
+        info["private_key"] = info["private_key"].replace("\\n", "\n")
+        
     creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     client = gspread.authorize(creds)
     sh = client.open_by_key(SHEET_ID)
@@ -124,11 +142,13 @@ def push_to_sheets(df_dict):
         try:
             worksheet = sh.worksheet(tab_name)
         except gspread.exceptions.WorksheetNotFound:
-            worksheet = sh.add_worksheet(title=tab_name, rows="100", cols="20")
+            worksheet = sh.add_worksheet(title=tab_name, rows="500", cols="25")
         
         worksheet.clear()
         if not df.empty:
-            worksheet.update('A1', [df.columns.values.tolist()] + df.values.tolist())
+            # Convert DF to list of lists including header
+            values = [df.columns.values.tolist()] + df.values.tolist()
+            worksheet.update('A1', values)
             print(f"✅ Updated {tab_name} with {len(df)} rows.")
         else:
             worksheet.update('A1', [['No data found for this category']])
@@ -142,11 +162,14 @@ if __name__ == "__main__":
     if raw_data:
         full_df = clean_and_process(raw_data)
         
+        # Split data for specific tabs
         rp_data = full_df[full_df["Report_Type"].str.contains("Patrol", case=False)]
         wt_data = full_df[full_df["Report_Type"].str.contains("Transect", case=False)]
         
+        # Pushing to Sheet6 (Patrols) and Sheet7 (Transects)
         push_to_sheets({"Sheet6": rp_data, "Sheet7": wt_data})
         
+        # Sync Log
         log_df = pd.DataFrame([{"Last_Sync_EAT": now_eat, "RP_Rows": len(rp_data), "WT_Rows": len(wt_data)}])
         push_to_sheets({"Sync_Log": log_df})
     else:
