@@ -560,39 +560,51 @@ def clean_dataframe(df):
 
     def build_transect_output(mask):
         """Build the Sheet7 (Transect) DataFrame with the required column layout."""
+        # --- Remove officer-day groups that contain only a single entry ---
+        # A lone row on a given day is considered incomplete and excluded from output.
+        transect_sub = df[mask].copy()
+        group_sizes  = transect_sub.groupby(
+            ["Date", "Reported_By"], sort=False
+        )["Report_Id"].transform("count")
+        removed = (group_sizes == 1).sum()
+        if removed:
+            print(f"Single-entry filter: removed {removed} transect row(s) with no sibling entries on the same day.")
+        transect_sub = transect_sub[group_sizes > 1]
+        idx = transect_sub.index
+
         out = pd.DataFrame({
-            "Form Number":    "ER" + df.loc[mask, "Report_Id"].astype(str),
-            "Scout Name":     title_col(df.loc[mask, "Reported_By"]),
-            "Day":            df.loc[mask, "Day"],
-            "Month":          df.loc[mask, "Month"],
-            "Year":           df.loc[mask, "Year"],
-            "Date":           df.loc[mask, "Date"],
-            "Transect":       title_col(df.loc[mask, "Transect_Final"]),
-            "StartTime":      df.loc[mask, "Final_StartTime"],
-            "Active Time":    df.loc[mask, "Time"].where(
-                                  ~df.loc[mask, "Is_First_Row"] & ~df.loc[mask, "Is_Last_Row"],
+            "Form Number":    "ER" + transect_sub["Report_Id"].astype(str),
+            "Scout Name":     title_col(transect_sub["Reported_By"]),
+            "Day":            transect_sub["Day"],
+            "Month":          transect_sub["Month"],
+            "Year":           transect_sub["Year"],
+            "Date":           transect_sub["Date"],
+            "Transect":       title_col(transect_sub["Transect_Final"]),
+            "StartTime":      transect_sub["Final_StartTime"],
+            "Active Time":    transect_sub["Time"].where(
+                                  ~transect_sub["Is_First_Row"] & ~transect_sub["Is_Last_Row"],
                                   other=""
                               ),
-            "EndTime":        df.loc[mask, "Final_EndTime"],
+            "EndTime":        transect_sub["Final_EndTime"],
             "UTM East(X)":    "",
             "UTM North(Y)":   "",
-            "Deg_Latitude":   col("Latitude").loc[mask],
-            "Deg_Longitude":  col("Longitude").loc[mask],
+            "Deg_Latitude":   col("Latitude").loc[idx],
+            "Deg_Longitude":  col("Longitude").loc[idx],
             " ":              "",                                       # empty col after Longitude
-            "Species":        title_col(species_col.loc[mask]),
-            "Trophic":        title_col(trophic_col.loc[mask]),
-            "Number":         col("Number").loc[mask],
-            "Distance":       col("Sighting_Distance_(m)").loc[mask],
-            "Angle":          col("Sighting_angle_(degrees_from_North)").loc[mask],
-            "Type":           title_col(col("Type").loc[mask]),
-            "Track Height":   col("Spoor_Height_(cm)").loc[mask],
-            "Track Length":   col("Spoor_Width_(cm)").loc[mask],
-            "Trackage":       title_col(col("Track_Age").loc[mask]),
-            "Rain":           title_col(col("Rain").loc[mask]),
-            "Ground Cover":   title_col(col("Ground_Cover").loc[mask]),
-            "Habitat":        title_col(col("Habitat").loc[mask]),
-            "Photos":         col("Attachments").loc[mask],
-            "Activity":       title_col(col("Activity").loc[mask]),
+            "Species":        title_col(species_col.loc[idx]),
+            "Trophic":        title_col(trophic_col.loc[idx]),
+            "Number":         col("Number").loc[idx],
+            "Distance":       col("Sighting_Distance_(m)").loc[idx],
+            "Angle":          col("Sighting_angle_(degrees_from_North)").loc[idx],
+            "Type":           title_col(col("Type").loc[idx]),
+            "Track Height":   col("Spoor_Height_(cm)").loc[idx],
+            "Track Length":   col("Spoor_Width_(cm)").loc[idx],
+            "Trackage":       title_col(col("Track_Age").loc[idx]),
+            "Rain":           title_col(col("Rain").loc[idx]),
+            "Ground Cover":   title_col(col("Ground_Cover").loc[idx]),
+            "Habitat":        title_col(col("Habitat").loc[idx]),
+            "Photos":         col("Attachments").loc[idx],
+            "Activity":       title_col(col("Activity").loc[idx]),
         })
         return out
 
