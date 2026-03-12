@@ -12,7 +12,7 @@ ER_DOMAIN = "ack.pamdas.org"
 ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
-# We use triple quotes here to ensure all line breaks are perfectly preserved
+# Service Account credentials
 SERVICE_ACCOUNT_JSON = {
   "type": "service_account",
   "project_id": "earthranger-integration",
@@ -54,7 +54,7 @@ j8UmkktM6PXbocwralB/8Q==
   "universe_domain": "googleapis.com"
 }
 
-# --- 2. SPECIES REFERENCE ---
+# --- 2. REFERENCE MAPS ---
 SPECIES_REFERENCE = {
     "cheetah": "Carnivore", "lion": "Carnivore", "leopard": "Carnivore", 
     "spotted hyena": "Carnivore", "striped hyena": "Carnivore", "jackal": "Carnivore", 
@@ -92,7 +92,8 @@ REPORT_TYPE_MAP = {
 def normalize_species_name(name):
     if not isinstance(name, str) or name.lower() == 'nan' or not name.strip(): return ""
     name = re.sub(r"\s*\(unidentified\)", "", name, flags=re.IGNORECASE).lower().strip()
-    return name.replace("dik dik", "dikdik").replace("zebra grevy's", "grevy's zebra")
+    name = name.replace("dik dik", "dikdik").replace("zebra grevy's", "grevy's zebra")
+    return name
 
 def fetch_er_data():
     headers = {"Authorization": f"Bearer {ER_TOKEN}"}
@@ -124,7 +125,43 @@ def clean_and_process(data):
 
         loc_val = details.get('routineack_block') or details.get('transectack_block') or details.get('transects') or ""
 
+        # --- FIX APPLIED HERE ---
         rows.append({
             'Report_Id': f"ER{event.get('serial_number')}",
             'Report_Type': mapped_type,
-            'Reported_By':
+            'Reported_By': event.get('reported_by', {}).get('display_name', 'Unknown'),
+            'Date': event.get('time', ''),
+            'Species': norm_species,
+            'Species_Group': SPECIES_REFERENCE.get(norm_species, "Unclassified"),
+            'Category': cat_name,
+            'Location': loc_val
+        })
+    return rows
+
+def update_google_sheet(rows):
+    if not rows:
+        print("⚠️ No data to upload.")
+        return
+    
+    try:
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_JSON, scopes=scope)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).sheet1
+        
+        df = pd.DataFrame(rows)
+        sheet.clear()
+        sheet.update([df.columns.values.tolist()] + df.values.tolist())
+        print("✅ Sheet updated successfully!")
+    except Exception as e:
+        print(f"❌ Google Sheets Error: {e}")
+
+# --- 4. EXECUTION ---
+if __name__ == "__main__":
+    print("🚀 Fetching data from EarthRanger...")
+    raw_data = fetch_er_data()
+    if raw_data:
+        processed_data = clean_and_process(raw_data)
+        update_google_sheet(processed_data)
+    else:
+        print("❌ No data found.")
