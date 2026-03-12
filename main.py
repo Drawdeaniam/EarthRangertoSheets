@@ -176,16 +176,24 @@ def get_trophic(species_raw):
 
 
 def reformat_transect(name):
-    """Convert 'A - Some Transect' or 'A_SomeName' -> 'SomeName A' (letter prefix moves to end)."""
-    if isinstance(name, str):
-        # Handle "A - Name" format (dash separator)
-        match = re.match(r"([A-Z])\s*-\s*(.*)", name)
-        if match:
-            return f"{match.group(2).strip()} {match.group(1)}"
-        # Handle "A_Name" format (underscore separator e.g. B_Ntapasi -> Ntapasi B)
-        match = re.match(r"([A-Z])_(.*)", name)
-        if match:
-            return f"{match.group(2).strip()} {match.group(1)}"
+    """Move the letter prefix to the end and remove the separator.
+    Handles both 'B_Ntapasi' and 'B - Ntapasi' formats (any casing).
+    e.g. 'B_Ntapasi' -> 'Ntapasi B', 'b_ntapasi' -> 'Ntapasi B'
+    """
+    if not isinstance(name, str) or not name.strip():
+        return name
+    name = name.strip()
+    # Handle "A - Name" or "a - Name" format (dash separator)
+    match = re.match(r"^([A-Za-z])\s*-\s*(.+)$", name)
+    if match:
+        return f"{match.group(2).strip().title()} {match.group(1).upper()}"
+    # Handle "A_Name" or "a_name" format (underscore separator)
+    if "_" in name:
+        parts = name.split("_", 1)          # split on first underscore only
+        prefix = parts[0].strip()
+        rest   = parts[1].strip()
+        if len(prefix) <= 2:                # only short codes qualify as prefix letters
+            return f"{rest.title()} {prefix.upper()}"
     return name
 
 
