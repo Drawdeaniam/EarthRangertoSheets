@@ -1,0 +1,152 @@
+import requests
+import pandas as pd
+from google.colab import files
+
+# --- 1. CONFIGURATION ---
+ER_DOMAIN = "ack.pamdas.org"
+TOKEN = "GGG9n2P5mR7jW1qX4zB6tS3hL9vY0uN8eC2xA5mQ" 
+headers = {"Authorization": f"Bearer {TOKEN}"}
+
+# --- 2. PULL DATA ---
+print("🛰️ Fetching data from EarthRanger...")
+url = f"https://{ER_DOMAIN}/api/v1.0/activity/events/?page_size=100"
+response = requests.get(url, headers=headers)
+
+# Mapping dictionary for the 6 specific categories
+REPORT_TYPE_MAP = {
+    "patrol_domesticanimal": "Patrol - Domestic Animal Sighting",
+    "patrol_info_ack": "Patrol Info",
+    "patrolwildanimal_sight": "Patrol - Wild Animal Type",
+    "transect_domestic_sight": "Transect - Domestic Animal Type",
+    "transect_wildanimal_sight": "Transect - Wild Animal Type",
+    "transectinfo_ack": "Transect Info"
+}
+
+if response.status_code == 200:
+    json_res = response.json()
+    data = json_res.get('data', {}).get('results', []) or json_res.get('data', [])
+
+    if not data:
+        print("⚠️ No data found.")
+    else:
+        print(f"✅ Successfully pulled {len(data)} events.")
+        
+        def get_any(details_dict, keys_to_check):
+            for k in keys_to_check:
+                val = details_dict.get(k)
+                if val is not None and val != "":
+                    return val
+            return ""
+
+        rows = []
+        for event in data:
+            details = event.get('event_details', {})
+            location = event.get('location') or {}
+            reported_by = event.get('reported_by') or {}
+            notes_list = event.get('notes', [])
+            related_subjects = event.get('related_subjects', [])
+            files_list = event.get('files', [])
+
+            # Identify the Report Type
+            internal_val = event.get('event_type')
+            display_name = REPORT_TYPE_MAP.get(internal_val, event.get('event_type_label', internal_val))
+
+            # --- LOGIC FOR BLOCKS VS TRANSECTS ---
+            # 1. Determine Category (Patrol or Transect)
+            # We check the 'event_category' object first, then fall back to the internal_val prefix
+            category_obj = event.get('event_category', {})
+            category_name = category_obj.get('value', '').lower() if isinstance(category_obj, dict) else ""
+            
+            if not category_name:
+                if "transect" in internal_val.lower():
+                    category_name = "transect"
+                else:
+                    category_name = "patrol"
+
+            # 2. Extract the "Name" (from either block or transect fields)
+            loc_value = get_any(details, ['routineack_block', 'transectack_block', 'transects'])
+
+            # 3. Assign to correct column based on category
+            block_val = ""
+            transect_val = ""
+
+            if "transect" in category_name:
+                transect_val = loc_value
+            else:
+                block_val = loc_value
+
+            # Participant Logic
+            participant = reported_by.get('name') or \
+                          f"{reported_by.get('first_name', '')} {reported_by.get('last_name', '')}".strip() or \
+                          reported_by.get('username', 'Unknown')
+
+            # Build the row
+            row = {
+                'Report_Type': display_name,
+                'Report_Type_Internal_Value': internal_val,
+                'Report_Id': event.get('serial_number'),
+                'Title': event.get('title'),
+                'Priority': event.get('priority_label'),
+                'Priority_Internal_Value': event.get('priority'),
+                'Report_Status': event.get('state'),
+                'Reported_By': participant,
+                'Reported_At_(GMT+0:0)': pd.to_datetime(event.get('time')).strftime('%Y-%m-%d %H:%M') if event.get('time') else "N/A",
+                'Latitude': location.get('latitude'),
+                'Longitude': location.get('longitude'),
+                'Number_of_Notes': len(notes_list),
+                'Notes': " | ".join([str(n.get('text', '')) for n in notes_list]),
+                'Number_of_Related_Subjects': len(related_subjects),
+                'Collection_Report_IDs': ", ".join(event.get('contains', [])),
+                'Area': details.get('area', ''),
+                'Perimeter': details.get('perimeter', ''),
+                'Attachments': len(files_list),
+                
+                'CUSTOM_FIELDS_BEGIN_HERE': '---', 
+
+                # --- CUSTOM FIELDS ---
+                'Blocks': block_val,
+                'Rain_Night_Before': get_any(details, ['routineack_rain', 'walktransect_rain']),
+                'Last_Rain': get_any(details, ['routineack_lastrain', 'walktransect_lastrain']),
+                'Wild_Animal_Species': get_any(details, ['patrolackwild_specieswild', 'routineack_specieswild']),
+                'Number': get_any(details, ['patrolack_nb', 'patrolackwild_nb', 'routineack_nb']),
+                'Habitat': get_any(details, ['patrolack_habitat', 'patrolackwild_habitat', 'routineack_habitat']),
+                'Type': get_any(details, ['patrolack_type', 'patrolackwild_type', 'routineack_type']),
+                'Ground_Cover': get_any(details, ['patrolack_groundcover', 'patrolackwild_groundcover', 'routineack_groundcover']),
+                'Sighting_Distance_(m)': get_any(details, ['patrolack_sightingdistance', 'patrolackwild_sightingdistance', 'routineack_sightingdistance']),
+                'Sighting_angle_(degrees_from_North)': get_any(details, ['patrolack_sightingangle', 'patrolackwild_sightingangle', 'routineack_sightingangle']),
+                'Spoor_Height_(cm)': get_any(details, ['patrolackwild_spoorheight', 'routineack_spoorheight']),
+                'Spoor_Width_(cm)': get_any(details, ['patrolackwild_spoorwidth', 'routineack_spoorwidth']),
+                'Track_Age': get_any(details, ['patrolackwild_trackage', 'routineack_trackage']),
+                'Activity': get_any(details, ['patrolack_activity', 'patrolackwild_activity', 'routineack_activity']),
+                'Domestic_Animal_Species': get_any(details, ['patrolack_speciesdomestic', 'routineack_speciesdomestic']),
+                'Transects': transect_val 
+            }
+            rows.append(row)
+
+        df_clean = pd.DataFrame(rows)
+
+        # Apply exact final column order
+        final_cols = [
+            'Report_Type', 'Report_Type_Internal_Value', 'Report_Id', 'Title', 'Priority', 
+            'Priority_Internal_Value', 'Report_Status', 'Reported_By', 'Reported_At_(GMT+0:0)', 
+            'Latitude', 'Longitude', 'Number_of_Notes', 'Notes', 'Number_of_Related_Subjects', 
+            'Collection_Report_IDs', 'Area', 'Perimeter', 'Attachments', 'CUSTOM_FIELDS_BEGIN_HERE', 
+            'Blocks', 'Rain_Night_Before', 'Last_Rain', 'Wild_Animal_Species', 'Number', 'Habitat', 
+            'Type', 'Ground_Cover', 'Sighting_Distance_(m)', 'Sighting_angle_(degrees_from_North)', 
+            'Spoor_Height_(cm)', 'Spoor_Width_(cm)', 'Track_Age', 'Activity', 
+            'Domestic_Animal_Species', 'Transects'
+        ]
+        
+        df_final = df_clean[final_cols]
+
+        # --- 3. EXPORT ---
+        print("\n--- PREVIEW ---")
+        display(df_final.head())
+        
+        filename = "EarthRanger_Master_Cleaned.xlsx"
+        df_final.to_excel(filename, index=False)
+        print(f"\n✨ {filename} downloaded.")
+        files.download(filename)
+
+else:
+    print(f"❌ API Error {response.status_code}: {response.text}")
