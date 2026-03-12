@@ -13,8 +13,8 @@ ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
 # Tab names for Patrol and Transect data respectively
-PATROL_TAB   = "Sheet6"
-TRANSECT_TAB = "Sheet7"
+PATROL_TAB   = "RP"
+TRANSECT_TAB = "WT"
 
 # Trophic level lookup keyed by normalized lowercase ER species values.
 # Categories sourced from the "Species to be recorded" reference sheet.
@@ -417,8 +417,10 @@ def clean_dataframe(df):
     # --- Derive Start / End times per (Date, Reported_By) group ---
     # Grouping by Date + officer so the earliest event of the day gets StartTime,
     # the latest gets EndTime, and all events in between get Active Time.
+    # NOTE: this runs AFTER all deduplication so flags are never stale.
     def process_group(group):
         valid_times = group.loc[group["Reported_At"].notna(), "Reported_At"]
+        group = group.copy()
         group["Is_First_Row"]      = False
         group["Is_Last_Row"]       = False
         group["Report_Time_Value"] = group["Time"]
@@ -429,10 +431,6 @@ def clean_dataframe(df):
             if last_idx != first_idx:
                 group.loc[last_idx, "Is_Last_Row"] = True
         return group
-
-    df = df.groupby(["Date", "Reported_By"], group_keys=False).apply(process_group)
-    df["Final_StartTime"] = df.apply(lambda r: r["Report_Time_Value"] if r["Is_First_Row"] else "", axis=1)
-    df["Final_EndTime"]   = df.apply(lambda r: r["Report_Time_Value"] if r["Is_Last_Row"]  else "", axis=1)
 
     # --- Propagate Transect name from 'Transect Info' rows to all sibling rows ---
     if "Transects" in df.columns:
@@ -483,6 +481,14 @@ def clean_dataframe(df):
             df.groupby(["Date", "Reported_By"], group_keys=False)
             .apply(fill_within_group, target_col=col_name)
         )
+
+    # --- Assign Is_First_Row / Is_Last_Row AFTER all deduplication is complete ---
+    # Deduplication above can remove rows, so flags must be computed on the final
+    # row set to guarantee exactly one StartTime and one EndTime per officer-day.
+    df = df.reset_index(drop=True)
+    df = df.groupby(["Date", "Reported_By"], group_keys=False).apply(process_group)
+    df["Final_StartTime"] = df.apply(lambda r: r["Report_Time_Value"] if r["Is_First_Row"] else "", axis=1)
+    df["Final_EndTime"]   = df.apply(lambda r: r["Report_Time_Value"] if r["Is_Last_Row"]  else "", axis=1)
 
     # --- Merge domestic + wild species; compute Trophic ---
     # Replace empty strings with NaN first so combine_first correctly falls
@@ -710,5 +716,4 @@ if __name__ == "__main__":
 
         push_to_google_sheets(patrol_df, transect_df)
         print("Sync complete.")
-
 
