@@ -13,8 +13,8 @@ ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
 # Tab names for Patrol and Transect data respectively
-PATROL_TAB = "Sheet6"
-TRANSECT_TAB = "Sheet7"
+PATROL_TAB   = "RP"
+TRANSECT_TAB = "WT"
 
 # Trophic level lookup keyed by normalized lowercase ER species values.
 # Categories sourced from the "Species to be recorded" reference sheet.
@@ -414,7 +414,9 @@ def clean_dataframe(df):
             return HABITAT_MAP.get(cleaned.upper(), cleaned.title())
         df["Habitat"] = df["Habitat"].astype(str).apply(clean_habitat)
 
-    # --- Derive Start / End times per (Report_Id, Reported_By) group ---
+    # --- Derive Start / End times per (Date, Reported_By) group ---
+    # Grouping by Date + officer so the earliest event of the day gets StartTime,
+    # the latest gets EndTime, and all events in between get Active Time.
     def process_group(group):
         valid_times = group.loc[group["Reported_At"].notna(), "Reported_At"]
         group["Is_First_Row"]      = False
@@ -428,7 +430,7 @@ def clean_dataframe(df):
                 group.loc[last_idx, "Is_Last_Row"] = True
         return group
 
-    df = df.groupby(["Report_Id", "Reported_By"], group_keys=False).apply(process_group)
+    df = df.groupby(["Date", "Reported_By"], group_keys=False).apply(process_group)
     df["Final_StartTime"] = df.apply(lambda r: r["Report_Time_Value"] if r["Is_First_Row"] else "", axis=1)
     df["Final_EndTime"]   = df.apply(lambda r: r["Report_Time_Value"] if r["Is_Last_Row"]  else "", axis=1)
 
@@ -619,13 +621,10 @@ def clean_dataframe(df):
 # =============================================================================
 
 def upload_to_sheet(spreadsheet, tab_name, dataframe):
-    """Clear a worksheet and write the full dataframe (header + data rows)."""
+    """Append only new rows to the worksheet, matched by Form Number to avoid duplicates."""
     if dataframe.empty:
         print(f"No data for tab '{tab_name}'. Skipping.")
         return
-
-    upload_df      = dataframe.fillna("").astype(str)
-    data_to_upload = [upload_df.columns.tolist()] + upload_df.values.tolist()
 
     try:
         worksheet = spreadsheet.worksheet(tab_name)
@@ -633,9 +632,45 @@ def upload_to_sheet(spreadsheet, tab_name, dataframe):
         print(f"Tab '{tab_name}' not found -- creating it...")
         worksheet = spreadsheet.add_worksheet(title=tab_name, rows=5000, cols=50)
 
-    worksheet.clear()
-    worksheet.update(data_to_upload, value_input_option="USER_ENTERED")
-    print(f"'{tab_name}' updated -- {len(dataframe)} rows, {len(dataframe.columns)} columns.")
+    upload_df = dataframe.fillna("").astype(str)
+
+    # --- Read existing sheet to determine what's already there ---
+    existing_data = worksheet.get_all_values()
+
+    if not existing_data:
+        # Sheet is empty: write header + all rows
+        data_to_upload = [upload_df.columns.tolist()] + upload_df.values.tolist()
+        worksheet.update(data_to_upload, value_input_option="USER_ENTERED")
+        print(f"'{tab_name}': wrote {len(upload_df)} rows (sheet was empty).")
+        return
+
+    # Identify the Form Number column index in the existing sheet
+    existing_headers = existing_data[0]
+    try:
+        fn_col_idx = existing_headers.index("Form Number")
+    except ValueError:
+        # Header row missing Form Number -- fall back to appending everything
+        fn_col_idx = None
+
+    if fn_col_idx is not None:
+        existing_form_numbers = {
+            row[fn_col_idx] for row in existing_data[1:] if len(row) > fn_col_idx
+        }
+        new_rows = upload_df[~upload_df["Form Number"].isin(existing_form_numbers)]
+    else:
+        new_rows = upload_df
+
+    if new_rows.empty:
+        print(f"'{tab_name}': no new rows to append (all {len(upload_df)} already present).")
+        return
+
+    worksheet.append_rows(
+        new_rows.values.tolist(),
+        value_input_option="USER_ENTERED",
+        insert_data_option="INSERT_ROWS",
+        table_range="A1",
+    )
+    print(f"'{tab_name}': appended {len(new_rows)} new row(s) ({len(upload_df) - len(new_rows)} already existed).")
 
 
 def push_to_google_sheets(patrol_df, transect_df):
