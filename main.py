@@ -1,22 +1,34 @@
 import os
-import json
+import re
 import requests
 import pandas as pd
-import re
 import gspread
-from datetime import datetime
 from google.oauth2.service_account import Credentials
 
-# --- 1. CONFIGURATION ---
+# =============================================================================
+# 1. CONFIGURATION
+# =============================================================================
 ER_DOMAIN = "ack.pamdas.org"
 ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
+# Tab names for Patrol and Transect data respectively
+PATROL_TAB = "Sheet6"
+TRANSECT_TAB = "Sheet7"
+
+# Optional: populate this dict to enable Trophic level lookups.
+# Keys must be lowercase normalized species names (e.g. "grevy's zebra").
+# If left empty, the Trophic column will be blank.
+TROPHIC_MAP = {
+    # "lion": "Carnivore",
+    # "elephant": "Herbivore",
+}
+
 SERVICE_ACCOUNT_JSON = {
-  "type": "service_account",
-  "project_id": "earthranger-integration",
-  "private_key_id": "2eaa9d8a90ef0faac75614290e0322e861c48e6a",
-  "private_key": """-----BEGIN PRIVATE KEY-----
+    "type": "service_account",
+    "project_id": "earthranger-integration",
+    "private_key_id": "2eaa9d8a90ef0faac75614290e0322e861c48e6a",
+    "private_key": """-----BEGIN PRIVATE KEY-----
 MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC/BTxBBEnjDwHo
 rDUkACdSRetvZrPhmNyLhEurPD4bYpRQZYBcPv7fbk1TFAsQ10fbZPl5y99KUcxN
 7CDb/2gZq/utl0SSSuArOSsRweLa7TJ+UNK+/tsqDMqWunDaI+u59L0dB/7VvDrD
@@ -44,93 +56,390 @@ Sk2fgpfr13ocQqkubvsRErqoRBJyat2FtQ7aWbDjINFlCY23rzTQdtMTte2r2zz2
 yo5q7098bw+VzYU6LYaRnwitmVjDT4x1wNz0lOyEii8bsVZvi0eq7GdlEQOB7+T8
 j8UmkktM6PXbocwralB/8Q==
 -----END PRIVATE KEY-----""",
-  "client_email": "er-sync-bot@earthranger-integration.iam.gserviceaccount.com",
-  "client_id": "105018899028643941740",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/er-sync-bot%40earthranger-integration.iam.gserviceaccount.com",
-  "universe_domain": "googleapis.com"
+    "client_email": "er-sync-bot@earthranger-integration.iam.gserviceaccount.com",
+    "client_id": "105018899028643941740",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/er-sync-bot%40earthranger-integration.iam.gserviceaccount.com",
+    "universe_domain": "googleapis.com"
 }
 
-# --- 2. HELPERS ---
+# Internal event_type -> human-readable label
+REPORT_TYPE_MAP = {
+    "patrol_domesticanimal":     "Patrol - Domestic Animal Sighting",
+    "patrol_info_ack":           "Patrol Info",
+    "patrolwildanimal_sight":    "Patrol - Wild Animal Type",
+    "transect_domestic_sight":   "Transect - Domestic Animal Type",
+    "transect_wildanimal_sight": "Transect - Wild Animal Type",
+    "transectinfo_ack":          "Transect Info",
+}
+
+
+# =============================================================================
+# 2. HELPERS
+# =============================================================================
+
+def get_any(details_dict, keys_to_check):
+    """Return the first non-empty value found in details_dict for the given keys."""
+    for k in keys_to_check:
+        val = details_dict.get(k)
+        if val is not None and val != "":
+            return val
+    return ""
+
+
 def normalize_species_name(name):
-    if not isinstance(name, str) or name.lower() == 'nan' or not name.strip(): return ""
+    """Lowercase, strip, remove '(unidentified)', and standardize naming variants."""
+    if not isinstance(name, str) or name.lower() == "nan" or not name.strip():
+        return ""
     name = re.sub(r"\s*\(unidentified\)", "", name, flags=re.IGNORECASE).lower().strip()
-    return name.replace("dik dik", "dikdik").replace("zebra grevy's", "grevy's zebra")
+    name = name.replace("dik dik", "dikdik")
+    name = name.replace("zebra grevy's", "grevy's zebra")
+    name = name.replace("gazelle grant's", "grant's gazelle")
+    return name
+
+
+def get_trophic(species_raw):
+    """Look up trophic level from TROPHIC_MAP using a normalized species key."""
+    return TROPHIC_MAP.get(normalize_species_name(str(species_raw)), "")
+
+
+def reformat_transect(name):
+    """Convert 'A - Some Transect' -> 'Some Transect A'."""
+    if isinstance(name, str):
+        match = re.match(r"([A-Z])\s*-\s*(.*)", name)
+        if match:
+            return f"{match.group(2).strip()} {match.group(1)}"
+    return name
+
+
+# =============================================================================
+# 3. PULL
+# =============================================================================
 
 def fetch_er_data():
+    """Fetch all events from EarthRanger, following pagination links."""
     headers = {"Authorization": f"Bearer {ER_TOKEN}"}
     url = f"https://{ER_DOMAIN}/api/v1.0/activity/events/?page_size=300"
-    try:
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 200:
-            return resp.json().get('data', {}).get('results', []) or resp.json().get('data', [])
-        print(f"❌ API Error: {resp.status_code}")
-    except Exception as e:
-        print(f"❌ Connection Error: {e}")
-    return []
+    all_results = []
+    while url:
+        try:
+            resp = requests.get(url, headers=headers, timeout=30)
+            if resp.status_code != 200:
+                print(f"API Error {resp.status_code}: {resp.text}")
+                break
+            payload = resp.json()
+            data_block = payload.get("data", {})
+            results = data_block.get("results", []) if isinstance(data_block, dict) else data_block
+            all_results.extend(results or [])
+            url = data_block.get("next") if isinstance(data_block, dict) else None
+        except Exception as e:
+            print(f"Connection Error: {e}")
+            break
+    print(f"Pulled {len(all_results)} events from EarthRanger.")
+    return all_results
 
-def clean_and_process(data):
+
+# =============================================================================
+# 4. BUILD RAW DATAFRAME
+# =============================================================================
+
+def build_raw_dataframe(data):
+    """
+    Parse the raw EarthRanger event list into a flat DataFrame that matches
+    the EarthRanger_Master_Cleaned.csv column schema.
+    """
     rows = []
     for event in data:
-        details = event.get('event_details', {})
-        
-        # Determine internal type and normalize names
-        internal_val = event.get('event_type', '')
-        
-        dom_spec = details.get('patrolack_speciesdomestic') or details.get('routineack_speciesdomestic')
-        wild_spec = details.get('patrolackwild_specieswild') or details.get('routineack_specieswild')
-        norm_species = normalize_species_name(str(dom_spec if dom_spec else wild_spec))
+        details      = event.get("event_details", {}) or {}
+        location     = event.get("location") or {}
+        reported_by  = event.get("reported_by") or {}
+        notes_list   = event.get("notes", [])
+        related_subj = event.get("related_subjects", [])
+        files_list   = event.get("files", [])
+
+        internal_val = event.get("event_type", "")
+        display_name = REPORT_TYPE_MAP.get(internal_val, event.get("event_type_label", internal_val))
+
+        # Determine patrol vs transect category
+        category_obj  = event.get("event_category", {})
+        category_name = category_obj.get("value", "").lower() if isinstance(category_obj, dict) else ""
+        if not category_name:
+            category_name = "transect" if "transect" in internal_val.lower() else "patrol"
+
+        # Assign location value to the correct column
+        loc_value = get_any(details, ["routineack_block", "transectack_block", "transects"])
+        if "transect" in category_name:
+            block_val, transect_val = "", loc_value
+        else:
+            block_val, transect_val = loc_value, ""
+
+        # Scout name with fallback chain
+        participant = (
+            reported_by.get("name")
+            or f"{reported_by.get('first_name', '')} {reported_by.get('last_name', '')}".strip()
+            or reported_by.get("username", "Unknown")
+        )
 
         rows.append({
-            'Report_Id': f"ER{event.get('serial_number')}",
-            'Report_Type': event.get('event_type_label', internal_val),
-            'Reported_By': event.get('reported_by', {}).get('display_name', 'Unknown'),
-            'Date': event.get('time', ''),
-            'Species': norm_species,
-            'Location': details.get('routineack_block') or details.get('transectack_block') or ""
+            "Report_Type":                         display_name,
+            "Report_Type_Internal_Value":          internal_val,
+            "Report_Id":                           event.get("serial_number"),
+            "Title":                               event.get("title"),
+            "Priority":                            event.get("priority_label"),
+            "Priority_Internal_Value":             event.get("priority"),
+            "Report_Status":                       event.get("state"),
+            "Reported_By":                         participant,
+            "Reported_At_(GMT+0:0)": (
+                pd.to_datetime(event.get("time")).strftime("%Y-%m-%d %H:%M")
+                if event.get("time") else "N/A"
+            ),
+            "Latitude":                            location.get("latitude"),
+            "Longitude":                           location.get("longitude"),
+            "Number_of_Notes":                     len(notes_list),
+            "Notes":                               " | ".join(str(n.get("text", "")) for n in notes_list),
+            "Number_of_Related_Subjects":          len(related_subj),
+            "Collection_Report_IDs":               ", ".join(event.get("contains", [])),
+            "Area":                                details.get("area", ""),
+            "Perimeter":                           details.get("perimeter", ""),
+            "Attachments":                         len(files_list),
+            "CUSTOM_FIELDS_BEGIN_HERE":            "---",
+            "Blocks":                              block_val,
+            "Rain_Night_Before":                   get_any(details, ["routineack_rain", "walktransect_rain"]),
+            "Last_Rain":                           get_any(details, ["routineack_lastrain", "walktransect_lastrain"]),
+            "Wild_Animal_Species":                 get_any(details, ["patrolackwild_specieswild", "routineack_specieswild"]),
+            "Number":                              get_any(details, ["patrolack_nb", "patrolackwild_nb", "routineack_nb"]),
+            "Habitat":                             get_any(details, ["patrolack_habitat", "patrolackwild_habitat", "routineack_habitat"]),
+            "Type":                                get_any(details, ["patrolack_type", "patrolackwild_type", "routineack_type"]),
+            "Ground_Cover":                        get_any(details, ["patrolack_groundcover", "patrolackwild_groundcover", "routineack_groundcover"]),
+            "Sighting_Distance_(m)":               get_any(details, ["patrolack_sightingdistance", "patrolackwild_sightingdistance", "routineack_sightingdistance"]),
+            "Sighting_angle_(degrees_from_North)": get_any(details, ["patrolack_sightingangle", "patrolackwild_sightingangle", "routineack_sightingangle"]),
+            "Spoor_Height_(cm)":                   get_any(details, ["patrolackwild_spoorheight", "routineack_spoorheight"]),
+            "Spoor_Width_(cm)":                    get_any(details, ["patrolackwild_spoorwidth", "routineack_spoorwidth"]),
+            "Track_Age":                           get_any(details, ["patrolackwild_trackage", "routineack_trackage"]),
+            "Activity":                            get_any(details, ["patrolack_activity", "patrolackwild_activity", "routineack_activity"]),
+            "Domestic_Animal_Species":             get_any(details, ["patrolack_speciesdomestic", "routineack_speciesdomestic"]),
+            "Transects":                           transect_val,
         })
-    return rows
 
-def update_google_sheet(rows):
-    if not rows:
-        print("⚠️ No data to upload.")
+    return pd.DataFrame(rows)
+
+
+# =============================================================================
+# 5. CLEAN
+# =============================================================================
+
+def _empty_series(index):
+    return pd.Series([""] * len(index), index=index)
+
+
+def clean_dataframe(df):
+    """
+    Apply all cleaning transforms and return two DataFrames:
+      (patrol_df, transect_df)
+    Each matches the final column layout expected in Google Sheets.
+    """
+
+    # --- Timezone: GMT+0 -> EAT (GMT+3) ---
+    df["Reported_At"] = (
+        pd.to_datetime(df["Reported_At_(GMT+0:0)"], errors="coerce")
+        + pd.Timedelta(hours=3)
+    )
+    df["Day"]   = df["Reported_At"].dt.day
+    df["Month"] = df["Reported_At"].dt.month
+    df["Year"]  = df["Reported_At"].dt.year
+    df["Date"]  = df["Reported_At"].dt.strftime("%d/%m/%Y")
+    df["Time"]  = df["Reported_At"].dt.strftime("%I:%M %p")
+
+    # --- Rename Last_Rain -> Rain ---
+    if "Rain" in df.columns:
+        df.drop(columns=["Rain"], inplace=True)
+    if "Last_Rain" in df.columns:
+        df.rename(columns={"Last_Rain": "Rain"}, inplace=True)
+
+    # --- Remove ' ACK' suffix from scout names ---
+    df["Reported_By"] = df["Reported_By"].str.replace(r"\s*ACK$", "", regex=True)
+
+    # --- Reformat transect names: 'A - Name' -> 'Name A' ---
+    if "Transects" in df.columns:
+        df["Transects"] = df["Transects"].apply(reformat_transect)
+    else:
+        df["Transects"] = None
+
+    # --- Clean Ground Cover ---
+    if "Ground_Cover" in df.columns:
+        df["Ground_Cover"] = df["Ground_Cover"].str.replace(
+            r"^\((SG|BG|MHG)\)\s*", "", regex=True
+        )
+
+    # --- Clean Habitat ---
+    if "Habitat" in df.columns:
+        df["Habitat"] = (
+            df["Habitat"]
+            .astype(str)
+            .str.replace(r"^\((.*?)\)$", r"\1", regex=True)
+            .str.strip()
+        )
+        df["Habitat"] = df["Habitat"].str.replace(
+            r"^(OWL|CWL|BWL|[(]OWL[)]|[(]CWL[)]|[(]BWL[)])\s*", "", regex=True
+        )
+        df["Habitat"] = df["Habitat"].replace("nan", "").fillna("")
+
+    # --- Derive Start / End times per (Report_Id, Reported_By) group ---
+    def process_group(group):
+        valid_times = group.loc[group["Reported_At"].notna(), "Reported_At"]
+        group["Is_First_Row"]      = False
+        group["Is_Last_Row"]       = False
+        group["Report_Time_Value"] = group["Time"]
+        if not valid_times.empty:
+            first_idx = valid_times.idxmin()
+            last_idx  = valid_times.idxmax()
+            group.loc[first_idx, "Is_First_Row"] = True
+            if last_idx != first_idx:
+                group.loc[last_idx, "Is_Last_Row"] = True
+        return group
+
+    df = df.groupby(["Report_Id", "Reported_By"], group_keys=False).apply(process_group)
+    df["Final_StartTime"] = df.apply(lambda r: r["Report_Time_Value"] if r["Is_First_Row"] else "", axis=1)
+    df["Final_EndTime"]   = df.apply(lambda r: r["Report_Time_Value"] if r["Is_Last_Row"]  else "", axis=1)
+
+    # --- Propagate Transect name from 'Transect Info' rows to all sibling rows ---
+    if "Transects" in df.columns:
+        transect_info = df[
+            df["Report_Type"].astype(str).str.lower() == "transect info"
+        ][["Report_Id", "Reported_By", "Transects"]].copy()
+        df = df.merge(transect_info, on=["Report_Id", "Reported_By"], how="left", suffixes=("", "_Extracted"))
+        df["Transect_Final"] = df["Transects_Extracted"].combine_first(df["Transects"])
+    else:
+        df["Transect_Final"] = None
+
+    # --- Merge domestic + wild species; compute Trophic ---
+    if "Domestic_Animal_Species" in df.columns and "Wild_Animal_Species" in df.columns:
+        species_col = df["Domestic_Animal_Species"].combine_first(df["Wild_Animal_Species"])
+    elif "Domestic_Animal_Species" in df.columns:
+        species_col = df["Domestic_Animal_Species"]
+    elif "Wild_Animal_Species" in df.columns:
+        species_col = df["Wild_Animal_Species"]
+    else:
+        species_col = _empty_series(df.index)
+
+    species_col = (
+        species_col.astype(str)
+        .str.replace(r"\s*\(unidentified\)", "", regex=True)
+        .str.strip()
+        .replace("nan", "")
+    )
+    trophic_col = species_col.apply(get_trophic)
+
+    # Helper to safely pull a column or return empty series
+    def col(name):
+        return df[name] if name in df.columns else _empty_series(df.index)
+
+    # --- Split into Patrol and Transect ---
+    transect_mask = df["Report_Type"].astype(str).str.contains("transect", na=False, case=False)
+    patrol_mask   = df["Report_Type"].astype(str).str.contains("patrol",   na=False, case=False)
+
+    def build_output(mask, include_blocks=False, include_transect=False):
+        out = pd.DataFrame({
+            "Form Number":   "ER" + df.loc[mask, "Report_Id"].astype(str),
+            "Scout Name":    df.loc[mask, "Reported_By"],
+            "Day":           df.loc[mask, "Day"],
+            "Month":         df.loc[mask, "Month"],
+            "Year":          df.loc[mask, "Year"],
+            "Date":          df.loc[mask, "Date"],
+            "StartTime":     df.loc[mask, "Final_StartTime"],
+            "Active Time":   df.loc[mask, "Time"],
+            "EndTime":       df.loc[mask, "Final_EndTime"],
+            "UTM East(X)":   "",
+            "UTM North(Y)":  "",
+            "Deg_Latitude":  col("Latitude").loc[mask],
+            "Deg_Longitude": col("Longitude").loc[mask],
+            "Species":       species_col.loc[mask],
+            "Trophic":       trophic_col.loc[mask],
+            "Number":        col("Number").loc[mask],
+            "Distance":      col("Sighting_Distance_(m)").loc[mask],
+            "Angle":         col("Sighting_angle_(degrees_from_North)").loc[mask],
+            "Type":          col("Type").loc[mask],
+            "Track height":  col("Spoor_Height_(cm)").loc[mask],
+            "Track length":  col("Spoor_Width_(cm)").loc[mask],
+            "Rain":          col("Rain").loc[mask],
+            "Ground Cover":  col("Ground_Cover").loc[mask],
+            "Habitat":       col("Habitat").loc[mask],
+            "Photos":        col("Attachments").loc[mask],
+            "Activity":      col("Activity").loc[mask],
+        })
+        if include_blocks:
+            out.insert(6, "Blocks", col("Blocks").loc[mask])
+        if include_transect:
+            out.insert(6, "Transect", df.loc[mask, "Transect_Final"])
+        return out
+
+    patrol_df   = build_output(patrol_mask,   include_blocks=True)
+    transect_df = build_output(transect_mask, include_transect=True)
+
+    return patrol_df, transect_df
+
+
+# =============================================================================
+# 6. UPLOAD TO GOOGLE SHEETS
+# =============================================================================
+
+def upload_to_sheet(spreadsheet, tab_name, dataframe):
+    """Clear a worksheet and write the full dataframe (header + data rows)."""
+    if dataframe.empty:
+        print(f"No data for tab '{tab_name}'. Skipping.")
         return
-    
+
+    upload_df      = dataframe.fillna("").astype(str)
+    data_to_upload = [upload_df.columns.tolist()] + upload_df.values.tolist()
+
     try:
-        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_JSON, scopes=scope)
-        client = gspread.authorize(creds)
-        
-        # Open the specific spreadsheet
-        spreadsheet = client.open_by_key(SHEET_ID)
-        
-        # Prepare data for upload
-        df = pd.DataFrame(rows)
-        data_to_upload = [df.columns.values.tolist()] + df.values.tolist()
+        worksheet = spreadsheet.worksheet(tab_name)
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"Tab '{tab_name}' not found -- creating it...")
+        worksheet = spreadsheet.add_worksheet(title=tab_name, rows=5000, cols=50)
 
-        # TARGET ONLY THESE TWO TABS
-        target_tabs = ["Sheet6", "Sheet7"]
+    worksheet.clear()
+    worksheet.update(data_to_upload)
+    print(f"'{tab_name}' updated -- {len(dataframe)} rows, {len(dataframe.columns)} columns.")
 
-        for tab_name in target_tabs:
-            try:
-                worksheet = spreadsheet.worksheet(tab_name)
-                worksheet.clear() # Clears the specific tab
-                worksheet.update(data_to_upload)
-                print(f"✅ Successfully updated {tab_name}")
-            except gspread.exceptions.WorksheetNotFound:
-                print(f"⚠️ Tab '{tab_name}' not found. Skipping...")
+
+def push_to_google_sheets(patrol_df, transect_df):
+    """Authenticate with the service account and push both DataFrames."""
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    try:
+        creds        = Credentials.from_service_account_info(SERVICE_ACCOUNT_JSON, scopes=scope)
+        client       = gspread.authorize(creds)
+        spreadsheet  = client.open_by_key(SHEET_ID)
+
+        upload_to_sheet(spreadsheet, PATROL_TAB, patrol_df)
+        upload_to_sheet(spreadsheet, TRANSECT_TAB, transect_df)
 
     except Exception as e:
-        print(f"❌ Google Sheets Error: {e}")
+        print(f"Google Sheets Error: {e}")
 
-# --- 3. EXECUTION ---
+
+# =============================================================================
+# 7. ENTRY POINT
+# =============================================================================
+
 if __name__ == "__main__":
-    print("🚀 Starting sync...")
+    print("Starting EarthRanger -> Google Sheets sync...")
+
     raw_data = fetch_er_data()
-    if raw_data:
-        processed_data = clean_and_process(raw_data)
-        update_google_sheet(processed_data)
+    if not raw_data:
+        print("No data fetched. Aborting.")
     else:
-        print("❌ No data fetched from EarthRanger.")
+        raw_df = build_raw_dataframe(raw_data)
+        print(f"Raw DataFrame: {len(raw_df)} rows x {len(raw_df.columns)} columns.")
+
+        patrol_df, transect_df = clean_dataframe(raw_df)
+        print(f"Cleaned -- Patrol: {len(patrol_df)} rows | Transect: {len(transect_df)} rows.")
+
+        push_to_google_sheets(patrol_df, transect_df)
+        print("Sync complete.")
+
