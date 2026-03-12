@@ -176,9 +176,14 @@ def get_trophic(species_raw):
 
 
 def reformat_transect(name):
-    """Convert 'A - Some Transect' -> 'Some Transect A'."""
+    """Convert 'A - Some Transect' or 'A_SomeName' -> 'SomeName A' (letter prefix moves to end)."""
     if isinstance(name, str):
+        # Handle "A - Name" format (dash separator)
         match = re.match(r"([A-Z])\s*-\s*(.*)", name)
+        if match:
+            return f"{match.group(2).strip()} {match.group(1)}"
+        # Handle "A_Name" format (underscore separator e.g. B_Ntapasi -> Ntapasi B)
+        match = re.match(r"([A-Z])_(.*)", name)
         if match:
             return f"{match.group(2).strip()} {match.group(1)}"
     return name
@@ -565,6 +570,7 @@ def clean_dataframe(df):
             "UTM North(Y)":   "",
             "Deg_Latitude":   col("Latitude").loc[mask],
             "Deg_Longitude":  col("Longitude").loc[mask],
+            " ":              "",                                       # empty col after Longitude
             "Species":        title_col(species_col.loc[mask]),
             "Trophic":        title_col(trophic_col.loc[mask]),
             "Number":         col("Number").loc[mask],
@@ -574,11 +580,11 @@ def clean_dataframe(df):
             "Track Height":   col("Spoor_Height_(cm)").loc[mask],
             "Track Length":   col("Spoor_Width_(cm)").loc[mask],
             "Trackage":       title_col(col("Track_Age").loc[mask]),
-            "Photos":         col("Attachments").loc[mask],
-            "Activity":       title_col(col("Activity").loc[mask]),
             "Rain":           title_col(col("Rain").loc[mask]),
             "Ground Cover":   title_col(col("Ground_Cover").loc[mask]),
             "Habitat":        title_col(col("Habitat").loc[mask]),
+            "Photos":         col("Attachments").loc[mask],
+            "Activity":       title_col(col("Activity").loc[mask]),
         })
         return out
 
