@@ -322,6 +322,13 @@ def clean_dataframe(df):
     df["Date"]  = df["Reported_At"].dt.strftime("%d/%m/%Y")
     df["Time"]  = df["Reported_At"].dt.strftime("%I:%M %p")
 
+    # --- Filter: only keep records from 10 March 2026 onwards ---
+    cutoff_date = pd.Timestamp("2026-03-10")
+    df = df[df["Reported_At"] >= cutoff_date].copy()
+
+    # --- Sort: oldest first so the latest entry always lands at the bottom ---
+    df = df.sort_values("Reported_At", ascending=True).reset_index(drop=True)
+
     # --- Rename Last_Rain -> Rain ---
     if "Rain" in df.columns:
         df.drop(columns=["Rain"], inplace=True)
@@ -385,12 +392,16 @@ def clean_dataframe(df):
         df["Transect_Final"] = None
 
     # --- Merge domestic + wild species; compute Trophic ---
+    # Replace empty strings with NaN first so combine_first correctly falls
+    # through to Wild_Animal_Species on rows where no domestic species was recorded.
     if "Domestic_Animal_Species" in df.columns and "Wild_Animal_Species" in df.columns:
-        species_col = df["Domestic_Animal_Species"].combine_first(df["Wild_Animal_Species"])
+        domestic = df["Domestic_Animal_Species"].replace("", pd.NA)
+        wild     = df["Wild_Animal_Species"].replace("", pd.NA)
+        species_col = domestic.combine_first(wild)
     elif "Domestic_Animal_Species" in df.columns:
-        species_col = df["Domestic_Animal_Species"]
+        species_col = df["Domestic_Animal_Species"].replace("", pd.NA)
     elif "Wild_Animal_Species" in df.columns:
-        species_col = df["Wild_Animal_Species"]
+        species_col = df["Wild_Animal_Species"].replace("", pd.NA)
     else:
         species_col = _empty_series(df.index)
 
