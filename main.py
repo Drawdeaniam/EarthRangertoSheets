@@ -13,8 +13,8 @@ ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
 # Tab names for Patrol and Transect data respectively
-PATROL_TAB   = "RP"
-TRANSECT_TAB = "WT"
+PATROL_TAB   = "Sheet6"
+TRANSECT_TAB = "Sheet7"
 
 # Trophic level lookup keyed by normalized lowercase ER species values.
 # Categories sourced from the "Species to be recorded" reference sheet.
@@ -710,4 +710,5 @@ if __name__ == "__main__":
 
         push_to_google_sheets(patrol_df, transect_df)
         print("Sync complete.")
+
 
