@@ -135,10 +135,11 @@ if __name__ == "__main__":
         rp_data = full_df[full_df["Report_Type"].str.contains("Patrol", case=False)]
         wt_data = full_df[full_df["Report_Type"].str.contains("Transect", case=False)]
         
-        push_to_sheets({"RP": rp_data, "WT": wt_data})
+        push_to_sheets({"Sheet6": rp_data, "Sheet7": wt_data})
         
         # Add a Sync_Log tab
         log_df = pd.DataFrame([{"Last_Sync_EAT": now_eat, "RP_Rows": len(rp_data), "WT_Rows": len(wt_data)}])
         push_to_sheets({"Sync_Log": log_df})
     else:
         print("❌ No data received from EarthRanger.")
+
