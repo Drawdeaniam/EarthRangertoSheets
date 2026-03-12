@@ -184,6 +184,27 @@ def reformat_transect(name):
     return name
 
 
+def format_photo_urls(files_list):
+    """Build a Google Sheets HYPERLINK formula for all attachment URLs in a cell."""
+    urls = []
+    for f in files_list:
+        url = (
+            f.get("url")
+            or f.get("images", {}).get("original", "")
+            or f.get("file_url", "")
+        )
+        if url:
+            urls.append(url)
+
+    if not urls:
+        return ""
+
+    parts = [f'HYPERLINK("{url}", "Photo {i + 1}")' for i, url in enumerate(urls)]
+    if len(parts) == 1:
+        return f"={parts[0]}"
+    return "=" + '&" | "&'.join(parts)
+
+
 # =============================================================================
 # 3. PULL
 # =============================================================================
@@ -273,7 +294,7 @@ def build_raw_dataframe(data):
             "Collection_Report_IDs":               ", ".join(event.get("contains", [])),
             "Area":                                details.get("area", ""),
             "Perimeter":                           details.get("perimeter", ""),
-            "Attachments":                         len(files_list),
+            "Attachments":                         format_photo_urls(files_list),
             "CUSTOM_FIELDS_BEGIN_HERE":            "---",
             "Blocks":                              block_val,
             "Rain_Night_Before":                   get_any(details, ["routineack_rain", "walktransect_rain"]),
@@ -482,7 +503,7 @@ def upload_to_sheet(spreadsheet, tab_name, dataframe):
         worksheet = spreadsheet.add_worksheet(title=tab_name, rows=5000, cols=50)
 
     worksheet.clear()
-    worksheet.update(data_to_upload)
+    worksheet.update(data_to_upload, value_input_option="USER_ENTERED")
     print(f"'{tab_name}' updated -- {len(dataframe)} rows, {len(dataframe.columns)} columns.")
 
 
