@@ -378,18 +378,30 @@ def clean_dataframe(df):
             r"^\((SG|BG|MHG)\)\s*", "", regex=True
         )
 
-    # --- Clean Habitat ---
+    # --- Clean Habitat: replace EarthRanger abbreviation codes with full words ---
+    HABITAT_MAP = {
+        "OWL":  "Open Woodland",
+        "CWL":  "Closed Woodland",
+        "BWL":  "Bushed Woodland",
+        "OBL":  "Open Bushland",
+        "CBL":  "Closed Bushland",
+        "GRL":  "Grassland",
+        "SHB":  "Shrubland",
+        "RVN":  "Riverine",
+        "RKY":  "Rocky",
+        "WTL":  "Wetland",
+        "AGR":  "Agricultural",
+        "URB":  "Urban",
+    }
     if "Habitat" in df.columns:
-        df["Habitat"] = (
-            df["Habitat"]
-            .astype(str)
-            .str.replace(r"^\((.*?)\)$", r"\1", regex=True)
-            .str.strip()
-        )
-        df["Habitat"] = df["Habitat"].str.replace(
-            r"^(OWL|CWL|BWL|[(]OWL[)]|[(]CWL[)]|[(]BWL[)])\s*", "", regex=True
-        )
-        df["Habitat"] = df["Habitat"].replace("nan", "").fillna("")
+        def clean_habitat(val):
+            if not isinstance(val, str) or not val.strip() or val.lower() == "nan":
+                return ""
+            # Strip surrounding parentheses e.g. "(OWL)" -> "OWL"
+            cleaned = re.sub(r"^\(?(.*?)\)?$", r"\1", val.strip())
+            # Look up full word; fall back to title-casing whatever is there
+            return HABITAT_MAP.get(cleaned.upper(), cleaned.title())
+        df["Habitat"] = df["Habitat"].astype(str).apply(clean_habitat)
 
     # --- Derive Start / End times per (Report_Id, Reported_By) group ---
     def process_group(group):
@@ -485,45 +497,93 @@ def clean_dataframe(df):
 
     # --- Split into Patrol and Transect ---
     transect_mask = df["Report_Type"].astype(str).str.contains("transect", na=False, case=False)
-    patrol_mask   = df["Report_Type"].astype(str).str.contains("patrol",   na=False, case=False)
+    def title_col(series):
+        """Apply title case to a string Series, leaving non-string values untouched."""
+        return series.astype(str).apply(
+            lambda v: v.title() if v and v.lower() not in ("nan", "") else ""
+        )
 
-    def build_output(mask, include_blocks=False, include_transect=False):
+    patrol_mask   = df["Report_Type"].astype(str).str.contains("patrol",   na=False, case=False)
+    transect_mask = df["Report_Type"].astype(str).str.contains("transect", na=False, case=False)
+
+    def build_patrol_output(mask):
+        """Build the Sheet6 (Patrol) DataFrame with the required column layout."""
         out = pd.DataFrame({
-            "Form Number":   "ER" + df.loc[mask, "Report_Id"].astype(str),
-            "Scout Name":    df.loc[mask, "Reported_By"],
-            "Day":           df.loc[mask, "Day"],
-            "Month":         df.loc[mask, "Month"],
-            "Year":          df.loc[mask, "Year"],
-            "Date":          df.loc[mask, "Date"],
-            "StartTime":     df.loc[mask, "Final_StartTime"],
-            "Active Time":   df.loc[mask, "Time"],
-            "EndTime":       df.loc[mask, "Final_EndTime"],
-            "UTM East(X)":   "",
-            "UTM North(Y)":  "",
-            "Deg_Latitude":  col("Latitude").loc[mask],
-            "Deg_Longitude": col("Longitude").loc[mask],
-            "Species":       species_col.loc[mask],
-            "Trophic":       trophic_col.loc[mask],
-            "Number":        col("Number").loc[mask],
-            "Distance":      col("Sighting_Distance_(m)").loc[mask],
-            "Angle":         col("Sighting_angle_(degrees_from_North)").loc[mask],
-            "Type":          col("Type").loc[mask],
-            "Track height":  col("Spoor_Height_(cm)").loc[mask],
-            "Track length":  col("Spoor_Width_(cm)").loc[mask],
-            "Rain":          col("Rain").loc[mask],
-            "Ground Cover":  col("Ground_Cover").loc[mask],
-            "Habitat":       col("Habitat").loc[mask],
-            "Photos":        col("Attachments").loc[mask],
-            "Activity":      col("Activity").loc[mask],
+            "Form Number":    "ER" + df.loc[mask, "Report_Id"].astype(str),
+            "Scout Name":     title_col(df.loc[mask, "Reported_By"]),
+            "Day":            df.loc[mask, "Day"],
+            "Month":          df.loc[mask, "Month"],
+            "Year":           df.loc[mask, "Year"],
+            "Date":           df.loc[mask, "Date"],
+            "Blocks":         title_col(col("Blocks").loc[mask]),
+            "":               "",                                       # empty col after Blocks
+            "StartTime":      df.loc[mask, "Final_StartTime"],
+            "Active Time":    df.loc[mask, "Time"].where(
+                                  ~df.loc[mask, "Is_First_Row"] & ~df.loc[mask, "Is_Last_Row"],
+                                  other=""
+                              ),
+            "EndTime":        df.loc[mask, "Final_EndTime"],
+            "UTM East(X)":    "",
+            "UTM North(Y)":   "",
+            "Deg_Latitude":   col("Latitude").loc[mask],
+            "Deg_Longitude":  col("Longitude").loc[mask],
+            " ":              "",                                       # empty col after Longitude
+            "Species":        title_col(species_col.loc[mask]),
+            "Trophic":        title_col(trophic_col.loc[mask]),
+            "Number":         col("Number").loc[mask],
+            "Distance":       col("Sighting_Distance_(m)").loc[mask],
+            "Angle":          col("Sighting_angle_(degrees_from_North)").loc[mask],
+            "Type":           title_col(col("Type").loc[mask]),
+            "Track Height":   col("Spoor_Height_(cm)").loc[mask],
+            "Track Length":   col("Spoor_Width_(cm)").loc[mask],
+            "Trackage":       title_col(col("Track_Age").loc[mask]),
+            "Photos":         col("Attachments").loc[mask],
+            "Activity":       title_col(col("Activity").loc[mask]),
+            "Rain":           title_col(col("Rain").loc[mask]),
+            "Ground Cover":   title_col(col("Ground_Cover").loc[mask]),
+            "Habitat":        title_col(col("Habitat").loc[mask]),
         })
-        if include_blocks:
-            out.insert(6, "Blocks", col("Blocks").loc[mask])
-        if include_transect:
-            out.insert(6, "Transect", df.loc[mask, "Transect_Final"])
         return out
 
-    patrol_df   = build_output(patrol_mask,   include_blocks=True)
-    transect_df = build_output(transect_mask, include_transect=True)
+    def build_transect_output(mask):
+        """Build the Sheet7 (Transect) DataFrame with the required column layout."""
+        out = pd.DataFrame({
+            "Form Number":    "ER" + df.loc[mask, "Report_Id"].astype(str),
+            "Scout Name":     title_col(df.loc[mask, "Reported_By"]),
+            "Day":            df.loc[mask, "Day"],
+            "Month":          df.loc[mask, "Month"],
+            "Year":           df.loc[mask, "Year"],
+            "Date":           df.loc[mask, "Date"],
+            "Transect":       title_col(df.loc[mask, "Transect_Final"]),
+            "StartTime":      df.loc[mask, "Final_StartTime"],
+            "Active Time":    df.loc[mask, "Time"].where(
+                                  ~df.loc[mask, "Is_First_Row"] & ~df.loc[mask, "Is_Last_Row"],
+                                  other=""
+                              ),
+            "EndTime":        df.loc[mask, "Final_EndTime"],
+            "UTM East(X)":    "",
+            "UTM North(Y)":   "",
+            "Deg_Latitude":   col("Latitude").loc[mask],
+            "Deg_Longitude":  col("Longitude").loc[mask],
+            "Species":        title_col(species_col.loc[mask]),
+            "Trophic":        title_col(trophic_col.loc[mask]),
+            "Number":         col("Number").loc[mask],
+            "Distance":       col("Sighting_Distance_(m)").loc[mask],
+            "Angle":          col("Sighting_angle_(degrees_from_North)").loc[mask],
+            "Type":           title_col(col("Type").loc[mask]),
+            "Track Height":   col("Spoor_Height_(cm)").loc[mask],
+            "Track Length":   col("Spoor_Width_(cm)").loc[mask],
+            "Trackage":       title_col(col("Track_Age").loc[mask]),
+            "Photos":         col("Attachments").loc[mask],
+            "Activity":       title_col(col("Activity").loc[mask]),
+            "Rain":           title_col(col("Rain").loc[mask]),
+            "Ground Cover":   title_col(col("Ground_Cover").loc[mask]),
+            "Habitat":        title_col(col("Habitat").loc[mask]),
+        })
+        return out
+
+    patrol_df   = build_patrol_output(patrol_mask)
+    transect_df = build_transect_output(transect_mask)
 
     return patrol_df, transect_df
 
