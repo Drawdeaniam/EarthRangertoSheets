@@ -371,10 +371,8 @@ def clean_dataframe(df):
     # --- Remove ' ACK' suffix from scout names ---
     df["Reported_By"] = df["Reported_By"].str.replace(r"\s*ACK$", "", regex=True)
 
-    # --- Reformat transect names: 'A - Name' -> 'Name A' ---
-    if "Transects" in df.columns:
-        df["Transects"] = df["Transects"].apply(reformat_transect)
-    else:
+    # --- Reformat transect names applied later after Transect_Final is built ---
+    if "Transects" not in df.columns:
         df["Transects"] = None
 
     # --- Clean Ground Cover ---
@@ -433,6 +431,8 @@ def clean_dataframe(df):
         ][["Report_Id", "Reported_By", "Transects"]].copy()
         df = df.merge(transect_info, on=["Report_Id", "Reported_By"], how="left", suffixes=("", "_Extracted"))
         df["Transect_Final"] = df["Transects_Extracted"].combine_first(df["Transects"])
+        # Apply reformat HERE after the merge so 'B_Ntapasi' -> 'Ntapasi B' is never overwritten
+        df["Transect_Final"] = df["Transect_Final"].apply(reformat_transect)
     else:
         df["Transect_Final"] = None
 
