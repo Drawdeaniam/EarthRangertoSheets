@@ -347,8 +347,15 @@ def clean_dataframe(df):
     cutoff_date = pd.Timestamp("2026-03-10")
     df = df[df["Reported_At"] >= cutoff_date].copy()
 
-    # --- Sort: oldest first so the latest entry always lands at the bottom ---
-    df = df.sort_values("Reported_At", ascending=True).reset_index(drop=True)
+    # --- Sort: by day -> officer name (A-Z) -> start time (earliest first) ---
+    # _sort_date floors Reported_At to midnight so the primary sort is day-level,
+    # then Reported_By alphabetically within each day, then full timestamp for time order.
+    df["_sort_date"] = df["Reported_At"].dt.normalize()
+    df = df.sort_values(
+        by=["_sort_date", "Reported_By", "Reported_At"],
+        ascending=[True, True, True]
+    ).reset_index(drop=True)
+    df.drop(columns=["_sort_date"], inplace=True)
 
     # --- Rename Last_Rain -> Rain ---
     if "Rain" in df.columns:
