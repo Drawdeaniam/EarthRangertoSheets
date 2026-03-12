@@ -12,12 +12,39 @@ ER_DOMAIN = "ack.pamdas.org"
 ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
-# The dictionary is handled directly; the script will sanitize the key internally.
+# We use triple quotes here to ensure all line breaks are perfectly preserved
 SERVICE_ACCOUNT_JSON = {
   "type": "service_account",
   "project_id": "earthranger-integration",
   "private_key_id": "2eaa9d8a90ef0faac75614290e0322e861c48e6a",
-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC/BTxBBEnjDwHo\nrDUkACdSRetvZrPhmNyLhEurPD4bYpRQZYBcPv7fbk1TFAsQ10fbZPl5y99KUcxN\n7CDb/2gZq/utl0SSSuArOSsRweLa7TJ+UNK+/tsqDMqWunDaI+u59L0dB/7VvDrD\nADRn3hts+zsadsm7MN+flaMYvQgwE0kOM7ME+JdpF8s4eh/FZ9zs6qH6gG3np0WS\nrdwWTJLjpRcORXyI/wTK9+DGDz2jWwZ68wPwDOVeuPW2cM4S4KK0qyGhOTJ7xaGT\nUpDU4nMytV7tm0nyrVV2Gdjm2SXIz+LJ5oF9eHknABFBebKasEoI4AMMaSZPGIdS\npAHPG205AgMBAAECggEAC5Uf2gS5DYqyP8SlX5P0zmvNQqQpwcL46IAdQyT0J8lF\nRfoJm6OkOlxgAEAbCv/gFwuwht6XoP7ZvQXVg5F2jfacMaKWS//nR30AFrkOGN6W\nF7ZYjlqPY9AtE+ZP2SJMH6qZMaKeT0vKYlrnp+lTT2XiZ7s5MIpeR45qunbH1tD8\nM9Yv9c22yyPCyvpdR7gwQ0fIs9kQzxxq48BR8jwGGkrOgXU/WFOr6PSAt3buXmeH\nM4ZvorHmfFUWX58FPOTG/7twMqF2ipdI9eQ/1u2wbnbbop97ho/nxqOJK+UQIK24\paRlPavPowGaNO5mEUDV42h73SCVLwLsboiz73cRuwKBgQD5Tcikg4or0+w1da3a\nuDQ4Hjv8CSUJ7MclPh+2jj34m1tt84vte+crfzfk16Q5gX8Ha9it8WU+qFmzIzXf\+cK/euw6skzV4daCrKZgfugbHicA8hFq3rpZRTZWyqlVmKpJ9hcE89MxLRopBkxC\npGoyvbZcglyEUmrRwQw2pgoWVwKBgQDEJrG9dAq7igLXwYrVSSXb1gMz0o6YcJoO\npX99Hp9g+wqjINxb6s8lDB4wetYjYyK5Z7+nBIlRjcKrp40eke1q2oCvrT77Wos4\nowQ/rZxUe/oQBeyer5MEs9ZeJVzJ5vPPee3bpBDYWHmMHfogMtCRA08P1vNTy3mj\nkM+roES+7wKBgDIeMALaqtFKxkatBKletKi/c0GkuPx4zEQxbACwMccjvEqrVmsE\nqKF27s6jh1FENjxQsvus9rSU9YtsvazsMfl6hbj7FTU+NHiKqtvlR1YERsUK5PN+\nGSpPHrBuB4K8sSczQMdvGPre3U54BKa1FOBkgR+x2VWEmBLY41KtKIP7AoGAD/n+\n3CmJfkD9fklbX4f3t3I1DJGH3868HZlJSw2leaa49RSGHk5/1Mqp4tT+gB9hAqz6\npUXvUV80jfq1udm09tEZTjXUPXDgihptDCq94vu+IHP7E+nFFcr4GO7+IcvX6/xI\nbW1tmdGLBOikKN86sbUNSYL+isK2A6aV46rILq0CgYBUIVI2uwE/ELiXO8O8m4uK\nSk2fgpfr13ocQqkubvsRErqoRBJyat2FtQ7aWbDjINFlCY23rzTQdtMTte2r2zz2\nyo5q7098bw+VzYU6LYaRnwitmVjDT4x1wNz0lOyEii8bsVZvi0eq7GdlEQOB7+T8\nj8UmkktM6PXbocwralB/8Q==\n-----END PRIVATE KEY-----\n",
+  "private_key": """-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC/BTxBBEnjDwHo
+rDUkACdSRetvZrPhmNyLhEurPD4bYpRQZYBcPv7fbk1TFAsQ10fbZPl5y99KUcxN
+7CDb/2gZq/utl0SSSuArOSsRweLa7TJ+UNK+/tsqDMqWunDaI+u59L0dB/7VvDrD
+ADRn3hts+zsadsm7MN+flaMYvQgwE0kOM7ME+JdpF8s4eh/FZ9zs6qH6gG3np0WS
+rdwWTJLjpRcORXyI/wTK9+DGDz2jWwZ68wPwDOVeuPW2cM4S4KK0qyGhOTJ7xaGT
+UpDU4nMytV7tm0nyrVV2Gdjm2SXIz+LJ5oF9eHknABFBebKasEoI4AMMaSZPGIdS
+pAHPG205AgMBAAECggEAC5Uf2gS5DYqyP8SlX5P0zmvNQqQpwcL46IAdQyT0J8lF
+RfoJm6OkOlxgAEAbCv/gFwuwht6XoP7ZvQXVg5F2jfacMaKWS//nR30AFrkOGN6W
+F7ZYjlqPY9AtE+ZP2SJMH6qZMaKeT0vKYlrnp+lTT2XiZ7s5MIpeR45qunbH1tD8
+M9Yv9c22yyPCyvpdR7gwQ0fIs9kQzxxq48BR8jwGGkrOgXU/WFOr6PSAt3buXmeH
+M4ZvorHmfFUWX58FPOTG/7twMqF2ipdI9eQ/1u2wbnbbop97ho/nxqOJK+UQIK24
+paRlPavPowGaNO5mEUDV42h73SCVLwLsboiz73cRuwKBgQD5Tcikg4or0+w1da3a
+uDQ4Hjv8CSUJ7MclPh+2jj34m1tt84vte+crfzfk16Q5gX8Ha9it8WU+qFmzIzXf
++cK/euw6skzV4daCrKZgfugbHicA8hFq3rpZRTZWyqlVmKpJ9hcE89MxLRopBkxC
+pGoyvbZcglyEUmrRwQw2pgoWVwKBgQDEJrG9dAq7igLXwYrVSSXb1gMz0o6YcJoO
+pX99Hp9g+wqjINxb6s8lDB4wetYjYyK5Z7+nBIlRjcKrp40eke1q2oCvrT77Wos4
+owQ/rZxUe/oQBeyer5MEs9ZeJVzJ5vPPee3bpBDYWHmMHfogMtCRA08P1vNTy3mj
+kM+roES+7wKBgDIeMALaqtFKxkatBKletKi/c0GkuPx4zEQxbACwMccjvEqrVmsE
+qKF27s6jh1FENjxQsvus9rSU9YtsvazsMfl6hbj7FTU+NHiKqtvlR1YERsUK5PN+
+GSpPHrBuB4K8sSczQMdvGPre3U54BKa1FOBkgR+x2VWEmBLY41KtKIP7AoGAD/n+
+3CmJfkD9fklbX4f3t3I1DJGH3868HZlJSw2leaa49RSGHk5/1Mqp4tT+gB9hAqz6
+pUXvUV80jfq1udm09tEZTjXUPXDgihptDCq94vu+IHP7E+nFFcr4GO7+IcvX6/xI
+bW1tmdGLBOikKN86sbUNSYL+isK2A6aV46rILq0CgYBUIVI2uwE/ELiXO8O8m4uK
+Sk2fgpfr13ocQqkubvsRErqoRBJyat2FtQ7aWbDjINFlCY23rzTQdtMTte2r2zz2
+yo5q7098bw+VzYU6LYaRnwitmVjDT4x1wNz0lOyEii8bsVZvi0eq7GdlEQOB7+T8
+j8UmkktM6PXbocwralB/8Q==
+-----END PRIVATE KEY-----""",
   "client_email": "er-sync-bot@earthranger-integration.iam.gserviceaccount.com",
   "client_id": "105018899028643941740",
   "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -73,8 +100,7 @@ def fetch_er_data():
     try:
         resp = requests.get(url, headers=headers)
         if resp.status_code == 200:
-            json_res = resp.json()
-            return json_res.get('data', {}).get('results', []) or json_res.get('data', [])
+            return resp.json().get('data', {}).get('results', []) or resp.json().get('data', [])
         print(f"❌ API Error: {resp.status_code}")
     except Exception as e:
         print(f"❌ Connection Error: {e}")
@@ -85,15 +111,12 @@ def clean_and_process(data):
     for event in data:
         details = event.get('event_details', {})
         internal_val = event.get('event_type', '')
-        
         mapped_type = REPORT_TYPE_MAP.get(internal_val, event.get('event_type_label', internal_val))
         
-        # Check for both domestic and wild species fields
         dom_spec = details.get('patrolack_speciesdomestic') or details.get('routineack_speciesdomestic')
         wild_spec = details.get('patrolackwild_specieswild') or details.get('routineack_specieswild')
         norm_species = normalize_species_name(str(dom_spec if dom_spec else wild_spec))
 
-        # Logic for Blocks vs Transects columns
         cat_obj = event.get('event_category', {})
         cat_name = cat_obj.get('value', '').lower() if isinstance(cat_obj, dict) else ""
         if not cat_name: 
@@ -104,73 +127,4 @@ def clean_and_process(data):
         rows.append({
             'Report_Id': f"ER{event.get('serial_number')}",
             'Report_Type': mapped_type,
-            'Reported_By': event.get('reported_by', {}).get('name', 'Unknown').replace(" ACK", ""),
-            'Raw_Time': event.get('time'),
-            'Latitude': event.get('location', {}).get('latitude'),
-            'Longitude': event.get('location', {}).get('longitude'),
-            'Species': norm_species,
-            'Trophic': SPECIES_REFERENCE.get(norm_species, ""),
-            'Number': details.get('patrolack_nb') or details.get('patrolackwild_nb') or details.get('routineack_nb'),
-            'Blocks': loc_val if "patrol" in cat_name else "",
-            'Transects': loc_val if "transect" in cat_name else "",
-            'Ground_Cover': str(details.get('patrolack_groundcover', '')),
-            'Habitat': str(details.get('patrolack_habitat', ''))
-        })
-    
-    df = pd.DataFrame(rows)
-    if df.empty: return df
-
-    # Convert to EAT (GMT+3)
-    df["Reported_At"] = pd.to_datetime(df["Raw_Time"]) + pd.Timedelta(hours=3)
-    df["Date"] = df["Reported_At"].dt.strftime("%d/%m/%Y")
-    df["Time"] = df["Reported_At"].dt.strftime("%I:%M %p")
-    
-    return df.fillna("")
-
-# --- 4. EXPORT ---
-def push_to_sheets(df_dict):
-    # FIX: Service account info is a dict; sanitize the PEM key formatting
-    info = SERVICE_ACCOUNT_JSON.copy()
-    if "private_key" in info:
-        info["private_key"] = info["private_key"].replace("\\n", "\n")
-        
-    creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets"])
-    client = gspread.authorize(creds)
-    sh = client.open_by_key(SHEET_ID)
-    
-    for tab_name, df in df_dict.items():
-        try:
-            worksheet = sh.worksheet(tab_name)
-        except gspread.exceptions.WorksheetNotFound:
-            worksheet = sh.add_worksheet(title=tab_name, rows="500", cols="25")
-        
-        worksheet.clear()
-        if not df.empty:
-            # Convert DF to list of lists including header
-            values = [df.columns.values.tolist()] + df.values.tolist()
-            worksheet.update('A1', values)
-            print(f"✅ Updated {tab_name} with {len(df)} rows.")
-        else:
-            worksheet.update('A1', [['No data found for this category']])
-            print(f"⚠️ {tab_name} cleared (no data found).")
-
-# --- EXECUTION ---
-if __name__ == "__main__":
-    raw_data = fetch_er_data()
-    now_eat = (datetime.utcnow() + pd.Timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
-    
-    if raw_data:
-        full_df = clean_and_process(raw_data)
-        
-        # Split data for specific tabs
-        rp_data = full_df[full_df["Report_Type"].str.contains("Patrol", case=False)]
-        wt_data = full_df[full_df["Report_Type"].str.contains("Transect", case=False)]
-        
-        # Pushing to Sheet6 (Patrols) and Sheet7 (Transects)
-        push_to_sheets({"Sheet6": rp_data, "Sheet7": wt_data})
-        
-        # Sync Log
-        log_df = pd.DataFrame([{"Last_Sync_EAT": now_eat, "RP_Rows": len(rp_data), "WT_Rows": len(wt_data)}])
-        push_to_sheets({"Sync_Log": log_df})
-    else:
-        print("❌ No data received from EarthRanger.")
+            'Reported_By':
