@@ -419,6 +419,44 @@ def clean_dataframe(df):
     else:
         df["Transect_Final"] = None
 
+    # --- Deduplicate and fill Block / Transect per officer-day group ---
+    # Step 1: Remove rows where the same non-empty block or transect value appears
+    # more than once for the same officer on the same day with the same report type.
+    # This catches accidental double entries on the Patrol Info / Transect Info rows.
+    for col_name in ["Blocks", "Transect_Final"]:
+        if col_name not in df.columns:
+            continue
+        dup_mask = (
+            df[col_name].replace("", pd.NA).notna()
+            & df.duplicated(
+                subset=["Date", "Reported_By", col_name, "Report_Type_Internal_Value"],
+                keep="first"
+            )
+        )
+        removed = dup_mask.sum()
+        if removed:
+            print(f"Deduplication: removed {removed} duplicate '{col_name}' entr{'y' if removed == 1 else 'ies'}.")
+        df = df[~dup_mask].copy()
+
+    # Step 2: Fill blank Block / Transect cells within each (Date, Reported_By) group
+    # using the first verified non-empty value found in that group.
+    def fill_within_group(group, target_col):
+        """Fill blank cells in target_col using the first non-empty value in the group."""
+        non_empty = group[target_col].replace("", pd.NA).dropna()
+        if non_empty.empty:
+            return group
+        group = group.copy()
+        group[target_col] = group[target_col].replace("", pd.NA).fillna(non_empty.iloc[0])
+        return group
+
+    for col_name in ["Blocks", "Transect_Final"]:
+        if col_name not in df.columns:
+            continue
+        df = (
+            df.groupby(["Date", "Reported_By"], group_keys=False)
+            .apply(fill_within_group, target_col=col_name)
+        )
+
     # --- Merge domestic + wild species; compute Trophic ---
     # Replace empty strings with NaN first so combine_first correctly falls
     # through to Wild_Animal_Species on rows where no domestic species was recorded.
