@@ -16,12 +16,82 @@ SHEET_ID = os.getenv("SHEET_ID")
 PATROL_TAB = "Sheet6"
 TRANSECT_TAB = "Sheet7"
 
-# Optional: populate this dict to enable Trophic level lookups.
-# Keys must be lowercase normalized species names (e.g. "grevy's zebra").
-# If left empty, the Trophic column will be blank.
+# Trophic level lookup keyed by normalized lowercase ER species values.
+# Categories sourced from the "Species to be recorded" reference sheet.
 TROPHIC_MAP = {
-    # "lion": "Carnivore",
-    # "elephant": "Herbivore",
+    # --- Carnivore ---
+    "cheetah":              "Carnivore",
+    "lion":                 "Carnivore",
+    "leopard":              "Carnivore",
+    "hyenaspotted":         "Carnivore",
+    "hyenasstriped":        "Carnivore",
+    "jackal_unidentified":  "Carnivore",
+    "jackal":               "Carnivore",
+    "caracal":              "Carnivore",
+    "africanwilddog":       "Carnivore",
+    "serval":               "Carnivore",
+
+    # --- Preferred cheetah prey ---
+    "hare":                 "Preferred cheetah prey",
+    "hyrax":                "Preferred cheetah prey",
+    "dikdik":               "Preferred cheetah prey",
+    "dikdikunidentified":   "Preferred cheetah prey",
+    "guineafowlcrested":    "Preferred cheetah prey",
+    "guineafowlvulturine":  "Preferred cheetah prey",
+    "yellowneckedspurfowl": "Preferred cheetah prey",
+    "grant'sgazelle":       "Preferred cheetah prey",
+    "gazelle_grants":       "Preferred cheetah prey",
+    "grantsgazelle":        "Preferred cheetah prey",
+    "gerenuk":              "Preferred cheetah prey",
+    "klipspringer":         "Preferred cheetah prey",
+    "clipspringer":         "Preferred cheetah prey",
+    "kudulesser":           "Preferred cheetah prey",
+    "impala":               "Preferred cheetah prey",
+    "steenbuck":            "Preferred cheetah prey",
+    "steenbok":             "Preferred cheetah prey",
+    "bushbuck":             "Preferred cheetah prey",
+    "thomson'sgazelle":     "Preferred cheetah prey",
+    "thomsonsgazelle":      "Preferred cheetah prey",
+    "duiker":               "Preferred cheetah prey",
+    "springhare":           "Preferred cheetah prey",
+
+    # --- Sometimes cheetah prey ---
+    "vervetmonkey":  "Sometimes cheetah prey",
+    "goat":          "Sometimes cheetah prey",
+    "shoat":         "Sometimes cheetah prey",
+    "sheep":         "Sometimes cheetah prey",
+    "greaterkudu":   "Sometimes cheetah prey",
+    "kudureater":    "Sometimes cheetah prey",
+    "ostrich":       "Sometimes cheetah prey",
+    "ostrichsomali": "Sometimes cheetah prey",
+    "ostrichunid":   "Sometimes cheetah prey",
+    "warthog":       "Sometimes cheetah prey",
+
+    # --- Seldom or never cheetah prey ---
+    "eland":        "Seldom or never cheetah prey",
+    "zebragrevy":   "Seldom or never cheetah prey",
+    "grevy'szebra": "Seldom or never cheetah prey",
+    "zebracommon":  "Seldom or never cheetah prey",
+    "baboon":       "Seldom or never cheetah prey",
+    "cattle":       "Seldom or never cheetah prey",
+    "camel":        "Seldom or never cheetah prey",
+    "buffalo":      "Seldom or never cheetah prey",
+    "hippo":        "Seldom or never cheetah prey",
+    "giraffe":      "Seldom or never cheetah prey",
+    "ele":          "Seldom or never cheetah prey",
+    "elephant":     "Seldom or never cheetah prey",
+    "bushpig":      "Seldom or never cheetah prey",
+    "donkey":       "Seldom or never cheetah prey",
+
+    # --- Unclassified ---
+    "bat-earedfox": "Unclassified",
+    "batearedfox":  "Unclassified",
+    "africancivet": "Unclassified",
+    "genet":        "Unclassified",
+    "domesticdog":  "Unclassified",
+    "honeybadger":  "Unclassified",
+    "bustardkori":  "Unclassified",
+    "vulture":      "Unclassified",
 }
 
 SERVICE_ACCOUNT_JSON = {
