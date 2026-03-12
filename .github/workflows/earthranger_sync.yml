@@ -1,0 +1,29 @@
+name: EarthRanger to Google Sheets
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Runs every hour on the hour
+  workflow_dispatch:      # Allows you to run it manually for testing
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests pandas gspread google-auth openpyxl
+
+      - name: Run Script
+        env:
+          ER_TOKEN: ${{ secrets.ER_TOKEN }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          # We'll handle the service account JSON in the next step
+        run: python main.py
