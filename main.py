@@ -13,8 +13,14 @@ ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
 # Tab names for Patrol and Transect data respectively
-PATROL_TAB   = "RP"
-TRANSECT_TAB = "WT"
+PATROL_TAB    = "RP"
+TRANSECT_TAB  = "WT"
+
+# Set to True to wipe both sheets and rewrite all data from scratch.
+# Use this whenever you need corrections (e.g. text fixes) to apply to
+# rows already in the sheet. Set back to False after the corrective run
+# so normal syncs safely append-only without touching existing data.
+FORCE_REFRESH = True
 
 # Trophic level lookup keyed by normalized lowercase ER species values.
 # Categories sourced from the "Species to be recorded" reference sheet.
@@ -665,7 +671,7 @@ def clean_dataframe(df):
 # =============================================================================
 
 def upload_to_sheet(spreadsheet, tab_name, dataframe):
-    """Append only new rows to the worksheet, matched by Form Number to avoid duplicates."""
+    """Append new rows to the worksheet, or fully rewrite if FORCE_REFRESH is True."""
     if dataframe.empty:
         print(f"No data for tab '{tab_name}'. Skipping.")
         return
@@ -676,24 +682,28 @@ def upload_to_sheet(spreadsheet, tab_name, dataframe):
         print(f"Tab '{tab_name}' not found -- creating it...")
         worksheet = spreadsheet.add_worksheet(title=tab_name, rows=5000, cols=50)
 
-    upload_df = dataframe.fillna("").astype(str)
+    upload_df      = dataframe.fillna("").astype(str)
+    data_to_upload = [upload_df.columns.tolist()] + upload_df.values.tolist()
 
-    # --- Read existing sheet to determine what's already there ---
+    if FORCE_REFRESH:
+        # Full rewrite -- clears sheet and rewrites all rows with latest cleaned values.
+        worksheet.clear()
+        worksheet.update(data_to_upload, value_input_option="USER_ENTERED")
+        print(f"'{tab_name}': force-refreshed with {len(upload_df)} rows.")
+        return
+
+    # --- Safe append-only mode ---
     existing_data = worksheet.get_all_values()
 
     if not existing_data:
-        # Sheet is empty: write header + all rows
-        data_to_upload = [upload_df.columns.tolist()] + upload_df.values.tolist()
         worksheet.update(data_to_upload, value_input_option="USER_ENTERED")
         print(f"'{tab_name}': wrote {len(upload_df)} rows (sheet was empty).")
         return
 
-    # Identify the Form Number column index in the existing sheet
     existing_headers = existing_data[0]
     try:
         fn_col_idx = existing_headers.index("Form Number")
     except ValueError:
-        # Header row missing Form Number -- fall back to appending everything
         fn_col_idx = None
 
     if fn_col_idx is not None:
