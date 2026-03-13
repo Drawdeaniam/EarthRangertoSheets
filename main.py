@@ -204,7 +204,7 @@ def reformat_transect(name):
 
 
 def format_photo_urls(files_list):
-    """Build a Google Sheets HYPERLINK formula for all attachment URLs in a cell."""
+    """Extract and return raw URLs separated by commas for Looker to parse."""
     urls = []
     for f in files_list:
         url = (
@@ -218,10 +218,8 @@ def format_photo_urls(files_list):
     if not urls:
         return ""
 
-    parts = [f'HYPERLINK("{url}", "Photo {i + 1}")' for i, url in enumerate(urls)]
-    if len(parts) == 1:
-        return f"={parts[0]}"
-    return "=" + '&" | "&'.join(parts)
+    # Return a clean string of URLs, separated by a comma
+    return ", ".join(urls)
 
 
 # =============================================================================
@@ -764,5 +762,6 @@ if __name__ == "__main__":
 
         push_to_google_sheets(patrol_df, transect_df)
         print("Sync complete.")
+
 
 
