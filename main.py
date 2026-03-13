@@ -13,8 +13,8 @@ ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
 # Tab names for Patrol and Transect data respectively
-PATROL_TAB    = "RP"
-TRANSECT_TAB  = "WT"
+PATROL_TAB    = "Sheet6"
+TRANSECT_TAB  = "sheet7"
 
 # Set to True to wipe both sheets and rewrite all data from scratch.
 # Use this whenever you need corrections (e.g. text fixes) to apply to
@@ -572,9 +572,14 @@ def clean_dataframe(df):
         )
 
     def build_patrol_output(mask):
-        """Build the Sheet6 (Patrol) DataFrame with the required column layout."""
+        """Build the RP (Patrol) DataFrame with the required column layout."""
+        def safe_form_num(v):
+            try:
+                return "ER" + str(int(float(v)))
+            except (ValueError, TypeError):
+                return "ER" + str(v)
         out = pd.DataFrame({
-            "Form Number":    "ER" + df.loc[mask, "Report_Id"].astype(str),
+            "Form Number":    df.loc[mask, "Report_Id"].apply(safe_form_num),
             "Scout Name":     title_col(df.loc[mask, "Reported_By"]),
             "Day":            df.loc[mask, "Day"],
             "Month":          df.loc[mask, "Month"],
@@ -611,7 +616,12 @@ def clean_dataframe(df):
         return out
 
     def build_transect_output(mask):
-        """Build the Sheet7 (Transect) DataFrame with the required column layout."""
+        """Build the WT (Transect) DataFrame with the required column layout."""
+        def safe_form_num(v):
+            try:
+                return "ER" + str(int(float(v)))
+            except (ValueError, TypeError):
+                return "ER" + str(v)
         # --- Remove officer-day groups that contain only a single entry ---
         # A lone row on a given day is considered incomplete and excluded from output.
         transect_sub = df[mask].copy()
@@ -625,7 +635,7 @@ def clean_dataframe(df):
         idx = transect_sub.index
 
         out = pd.DataFrame({
-            "Form Number":    "ER" + transect_sub["Report_Id"].astype(str),
+            "Form Number":    transect_sub["Report_Id"].apply(safe_form_num),
             "Scout Name":     title_col(transect_sub["Reported_By"]),
             "Day":            transect_sub["Day"],
             "Month":          transect_sub["Month"],
@@ -693,6 +703,8 @@ def upload_to_sheet(spreadsheet, tab_name, dataframe):
         return
 
     # --- Safe append-only mode ---
+    # Always read column A (index 0) as Form Numbers — no header name matching
+    # which can fail silently due to whitespace or encoding differences.
     existing_data = worksheet.get_all_values()
 
     if not existing_data:
@@ -700,19 +712,18 @@ def upload_to_sheet(spreadsheet, tab_name, dataframe):
         print(f"'{tab_name}': wrote {len(upload_df)} rows (sheet was empty).")
         return
 
-    existing_headers = existing_data[0]
-    try:
-        fn_col_idx = existing_headers.index("Form Number")
-    except ValueError:
-        fn_col_idx = None
+    # Column A holds Form Numbers (skip row 0 which is the header)
+    existing_form_numbers = {
+        row[0].strip()
+        for row in existing_data[1:]
+        if row and row[0].strip()
+    }
 
-    if fn_col_idx is not None:
-        existing_form_numbers = {
-            row[fn_col_idx] for row in existing_data[1:] if len(row) > fn_col_idx
-        }
-        new_rows = upload_df[~upload_df["Form Number"].isin(existing_form_numbers)]
-    else:
-        new_rows = upload_df
+    print(f"'{tab_name}': {len(existing_form_numbers)} existing Form Numbers found in sheet.")
+
+    new_rows = upload_df[
+        ~upload_df["Form Number"].str.strip().isin(existing_form_numbers)
+    ]
 
     if new_rows.empty:
         print(f"'{tab_name}': no new rows to append (all {len(upload_df)} already present).")
@@ -721,8 +732,6 @@ def upload_to_sheet(spreadsheet, tab_name, dataframe):
     worksheet.append_rows(
         new_rows.values.tolist(),
         value_input_option="USER_ENTERED",
-        insert_data_option="INSERT_ROWS",
-        table_range="A1",
     )
     print(f"'{tab_name}': appended {len(new_rows)} new row(s) ({len(upload_df) - len(new_rows)} already existed).")
 
@@ -764,5 +773,4 @@ if __name__ == "__main__":
 
         push_to_google_sheets(patrol_df, transect_df)
         print("Sync complete.")
-
 
