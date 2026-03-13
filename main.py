@@ -729,11 +729,15 @@ def upload_to_sheet(spreadsheet, tab_name, dataframe):
         print(f"'{tab_name}': no new rows to append (all {len(upload_df)} already present).")
         return
 
-    worksheet.append_rows(
+    # Write starting at the exact next empty row so columns always align correctly.
+    next_row    = len(existing_data) + 1
+    range_start = f"A{next_row}"
+    worksheet.update(
+        range_start,
         new_rows.values.tolist(),
         value_input_option="USER_ENTERED",
     )
-    print(f"'{tab_name}': appended {len(new_rows)} new row(s) ({len(upload_df) - len(new_rows)} already existed).")
+    print(f"'{tab_name}': appended {len(new_rows)} new row(s) at row {next_row} ({len(upload_df) - len(new_rows)} already existed).")
 
 
 def push_to_google_sheets(patrol_df, transect_df):
