@@ -20,7 +20,7 @@ TRANSECT_TAB  = "WT"
 # Use this whenever you need corrections (e.g. text fixes) to apply to
 # rows already in the sheet. Set back to False after the corrective run
 # so normal syncs safely append-only without touching existing data.
-FORCE_REFRESH = True
+FORCE_REFRESH = False
 
 # Trophic level lookup keyed by normalized lowercase ER species values.
 # Categories sourced from the "Species to be recorded" reference sheet.
@@ -764,4 +764,5 @@ if __name__ == "__main__":
 
         push_to_google_sheets(patrol_df, transect_df)
         print("Sync complete.")
+
 
