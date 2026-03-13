@@ -13,8 +13,8 @@ ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
 # Tab names for Patrol and Transect data respectively
-PATROL_TAB    = "Sheet6"
-TRANSECT_TAB  = "Sheet7"
+PATROL_TAB    = "RP"
+TRANSECT_TAB  = "WT"
 
 # Set to True to wipe both sheets and rewrite all data from scratch.
 # Use this whenever you need corrections (e.g. text fixes) to apply to
@@ -777,5 +777,6 @@ if __name__ == "__main__":
 
         push_to_google_sheets(patrol_df, transect_df)
         print("Sync complete.")
+
 
 
