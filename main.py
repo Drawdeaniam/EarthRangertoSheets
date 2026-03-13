@@ -414,6 +414,20 @@ def clean_dataframe(df):
             return HABITAT_MAP.get(cleaned.upper(), cleaned.title())
         df["Habitat"] = df["Habitat"].astype(str).apply(clean_habitat)
 
+    # --- Clean Type: expand shorthand values to full readable labels ---
+    TYPE_MAP = {
+        "NOSIGHT":    "No Sighting",
+        "NO SIGHT":   "No Sighting",
+        "NO-SIGHT":   "No Sighting",
+        "NO_SIGHT":   "No Sighting",
+    }
+    if "Type" in df.columns:
+        def clean_type(val):
+            if not isinstance(val, str) or not val.strip() or val.lower() == "nan":
+                return ""
+            return TYPE_MAP.get(val.strip().upper(), val.strip().title())
+        df["Type"] = df["Type"].astype(str).apply(clean_type)
+
     # --- Derive Start / End times per (Date, Reported_By) group ---
     # Grouping by Date + officer so the earliest event of the day gets StartTime,
     # the latest gets EndTime, and all events in between get Active Time.
@@ -441,6 +455,17 @@ def clean_dataframe(df):
         df["Transect_Final"] = df["Transects_Extracted"].combine_first(df["Transects"])
         # Apply reformat HERE after the merge so 'B_Ntapasi' -> 'Ntapasi B' is never overwritten
         df["Transect_Final"] = df["Transect_Final"].apply(reformat_transect)
+        # --- Correct known transect name misspellings (case-insensitive) ---
+        TRANSECT_NAME_MAP = {
+            "Nelepoboo A": "Nalepoboo A",
+            "Nelepoboo B": "Nalepoboo B",
+            "Nelepoboo C": "Nalepoboo C",
+        }
+        def correct_transect_name(val):
+            if not isinstance(val, str) or not val.strip():
+                return val
+            return TRANSECT_NAME_MAP.get(val.strip().title(), val.strip().title())
+        df["Transect_Final"] = df["Transect_Final"].apply(correct_transect_name)
     else:
         df["Transect_Final"] = None
 
