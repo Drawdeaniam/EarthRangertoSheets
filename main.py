@@ -13,8 +13,8 @@ ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
 # Tab names for Patrol and Transect data respectively
-PATROL_TAB    = "RP"
-TRANSECT_TAB  = "WT"
+PATROL_TAB    = "Sheet6"
+TRANSECT_TAB  = "Sheet7"
 
 # Set to True to wipe both sheets and rewrite all data from scratch.
 # Use this whenever you need corrections (e.g. text fixes) to apply to
@@ -204,7 +204,7 @@ def reformat_transect(name):
 
 
 def format_photo_urls(files_list):
-    """Extract and return raw URLs separated by commas for Looker to parse."""
+    """Build a Google Sheets HYPERLINK formula for all attachment URLs in a cell."""
     urls = []
     for f in files_list:
         url = (
@@ -218,8 +218,10 @@ def format_photo_urls(files_list):
     if not urls:
         return ""
 
-    # Return a clean string of URLs, separated by a comma
-    return ", ".join(urls)
+    parts = [f'HYPERLINK("{url}", "Photo {i + 1}")' for i, url in enumerate(urls)]
+    if len(parts) == 1:
+        return f"={parts[0]}"
+    return "=" + '&" | "&'.join(parts)
 
 
 # =============================================================================
@@ -762,6 +764,4 @@ if __name__ == "__main__":
 
         push_to_google_sheets(patrol_df, transect_df)
         print("Sync complete.")
-
-
 
