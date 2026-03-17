@@ -218,10 +218,10 @@ def format_photo_urls(files_list):
     if not urls:
         return ""
 
-    parts = [f'HYPERLINK("{url}", "Photo {i + 1}")' for i, url in enumerate(urls)]
-    if len(parts) == 1:
-        return f"={parts[0]}"
-    return "=" + '&" | "&'.join(parts)
+    #parts = [f'HYPERLINK("{url}", "Photo {i + 1}")' for i, url in enumerate(urls)]
+    #if len(parts) == 1:
+        #return f"={parts[0]}"
+    #return "=" + '&" | "&'.join(parts)
 
 
 # =============================================================================
