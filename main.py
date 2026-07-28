@@ -229,24 +229,40 @@ def format_photo_urls(files_list):
 # =============================================================================
 
 def fetch_er_data():
-    """Fetch all events from EarthRanger, following pagination links."""
+    """Fetch all events from EarthRanger, following pagination links with retries."""
     headers = {"Authorization": f"Bearer {ER_TOKEN}"}
     url = f"https://{ER_DOMAIN}/api/v1.0/activity/events/?page_size=300"
     all_results = []
+    
     while url:
-        try:
-            resp = requests.get(url, headers=headers, timeout=30)
-            if resp.status_code != 200:
-                print(f"API Error {resp.status_code}: {resp.text}")
+        attempts = 3
+        for attempt in range(attempts):
+            try:
+                # Increased timeout to 60 seconds
+                resp = requests.get(url, headers=headers, timeout=60)
+                if resp.status_code != 200:
+                    print(f"API Error {resp.status_code}: {resp.text}")
+                    url = None
+                    break
+                
+                payload = resp.json()
+                data_block = payload.get("data", {})
+                results = data_block.get("results", []) if isinstance(data_block, dict) else data_block
+                all_results.extend(results or [])
+                
+                url = data_block.get("next") if isinstance(data_block, dict) else None
+                break  # Success! Break out of the retry loop.
+                
+            except requests.exceptions.Timeout:
+                print(f"Timeout on attempt {attempt + 1}. Retrying...")
+                if attempt == attempts - 1:
+                    print("Max retries reached. Aborting this page.")
+                    url = None
+            except Exception as e:
+                print(f"Connection Error: {e}")
+                url = None
                 break
-            payload = resp.json()
-            data_block = payload.get("data", {})
-            results = data_block.get("results", []) if isinstance(data_block, dict) else data_block
-            all_results.extend(results or [])
-            url = data_block.get("next") if isinstance(data_block, dict) else None
-        except Exception as e:
-            print(f"Connection Error: {e}")
-            break
+                
     print(f"Pulled {len(all_results)} events from EarthRanger.")
     return all_results
 
