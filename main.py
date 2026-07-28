@@ -526,14 +526,14 @@ def clean_dataframe(df):
             continue
         df = (
             df.groupby(["Date", "Reported_By"], group_keys=False)
-            .apply(fill_within_group, target_col=col_name)
+            .apply(fill_within_group, target_col=col_name, include_groups=False)
         )
 
     # --- Assign Is_First_Row / Is_Last_Row AFTER all deduplication is complete ---
     # Deduplication above can remove rows, so flags must be computed on the final
     # row set to guarantee exactly one StartTime and one EndTime per officer-day.
     df = df.reset_index(drop=True)
-    df = df.groupby(["Date", "Reported_By"], group_keys=False).apply(process_group)
+    df = df.groupby(["Date", "Reported_By"], group_keys=False).apply(process_group, include_groups=False)
     df["Final_StartTime"] = df.apply(lambda r: r["Report_Time_Value"] if r["Is_First_Row"] else "", axis=1)
     df["Final_EndTime"]   = df.apply(lambda r: r["Report_Time_Value"] if r["Is_Last_Row"]  else "", axis=1)
 
