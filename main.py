@@ -229,40 +229,24 @@ def format_photo_urls(files_list):
 # =============================================================================
 
 def fetch_er_data():
-    """Fetch all events from EarthRanger, following pagination links with retries."""
+    """Fetch all events from EarthRanger, following pagination links."""
     headers = {"Authorization": f"Bearer {ER_TOKEN}"}
     url = f"https://{ER_DOMAIN}/api/v1.0/activity/events/?page_size=300"
     all_results = []
-    
     while url:
-        attempts = 3
-        for attempt in range(attempts):
-            try:
-                # Increased timeout to 60 seconds
-                resp = requests.get(url, headers=headers, timeout=60)
-                if resp.status_code != 200:
-                    print(f"API Error {resp.status_code}: {resp.text}")
-                    url = None
-                    break
-                
-                payload = resp.json()
-                data_block = payload.get("data", {})
-                results = data_block.get("results", []) if isinstance(data_block, dict) else data_block
-                all_results.extend(results or [])
-                
-                url = data_block.get("next") if isinstance(data_block, dict) else None
-                break  # Success! Break out of the retry loop.
-                
-            except requests.exceptions.Timeout:
-                print(f"Timeout on attempt {attempt + 1}. Retrying...")
-                if attempt == attempts - 1:
-                    print("Max retries reached. Aborting this page.")
-                    url = None
-            except Exception as e:
-                print(f"Connection Error: {e}")
-                url = None
+        try:
+            resp = requests.get(url, headers=headers, timeout=30)
+            if resp.status_code != 200:
+                print(f"API Error {resp.status_code}: {resp.text}")
                 break
-                
+            payload = resp.json()
+            data_block = payload.get("data", {})
+            results = data_block.get("results", []) if isinstance(data_block, dict) else data_block
+            all_results.extend(results or [])
+            url = data_block.get("next") if isinstance(data_block, dict) else None
+        except Exception as e:
+            print(f"Connection Error: {e}")
+            break
     print(f"Pulled {len(all_results)} events from EarthRanger.")
     return all_results
 
@@ -526,14 +510,14 @@ def clean_dataframe(df):
             continue
         df = (
             df.groupby(["Date", "Reported_By"], group_keys=False)
-            .apply(fill_within_group, target_col=col_name, include_groups=False)
+            .apply(fill_within_group, target_col=col_name)
         )
 
     # --- Assign Is_First_Row / Is_Last_Row AFTER all deduplication is complete ---
     # Deduplication above can remove rows, so flags must be computed on the final
     # row set to guarantee exactly one StartTime and one EndTime per officer-day.
     df = df.reset_index(drop=True)
-    df = df.groupby(["Date", "Reported_By"], group_keys=False).apply(process_group, include_groups=False)
+    df = df.groupby(["Date", "Reported_By"], group_keys=False).apply(process_group)
     df["Final_StartTime"] = df.apply(lambda r: r["Report_Time_Value"] if r["Is_First_Row"] else "", axis=1)
     df["Final_EndTime"]   = df.apply(lambda r: r["Report_Time_Value"] if r["Is_Last_Row"]  else "", axis=1)
 
@@ -793,6 +777,5 @@ if __name__ == "__main__":
 
         push_to_google_sheets(patrol_df, transect_df)
         print("Sync complete.")
-
 
 
