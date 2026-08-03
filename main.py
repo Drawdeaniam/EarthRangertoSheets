@@ -235,7 +235,7 @@ def fetch_er_data():
     all_results = []
     while url:
         try:
-            resp = requests.get(url, headers=headers, timeout=30)
+            resp = requests.get(url, headers=headers, timeout=60)
             if resp.status_code != 200:
                 print(f"API Error {resp.status_code}: {resp.text}")
                 break
