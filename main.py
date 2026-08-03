@@ -173,6 +173,8 @@ def normalize_species_name(name):
     name = name.replace("dik dik", "dikdik")
     name = name.replace("zebra grevy's", "grevy's zebra")
     name = name.replace("gazelle grant's", "grant's gazelle")
+    name = name.replace("ele", "elephant")
+    name = name.replace("Dikdikunidentified", "dikdik")
     return name
 
 
