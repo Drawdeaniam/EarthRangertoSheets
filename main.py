@@ -543,6 +543,17 @@ def clean_dataframe(df):
         .str.strip()
         .replace("nan", "")
     )
+
+    def clean_elephant_name(val):
+        """Replace the abbreviation 'Ele' with 'Elephant'."""
+        if not isinstance(val, str) or not val.strip() or val.lower() == "nan":
+            return ""
+        if val.strip().lower() == "ele":
+            return "Elephant"
+        return val.strip()
+    
+    # Apply the cleaning function to the column
+    species_col = species_col.apply(clean_elephant_name)
     trophic_col = species_col.apply(get_trophic)
 
     # Helper to safely pull a column or return empty series
