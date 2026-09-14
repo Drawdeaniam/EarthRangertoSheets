@@ -2,20 +2,22 @@ name: EarthRanger to Google Sheets
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Runs every hour on the hour
-  workflow_dispatch:      # Allows you to run it manually for testing
+    # Shift away from :00 to bypass GitHub queue congestion
+    - cron: '27 * * * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip' # Caches dependencies to speed up runs
 
       - name: Install dependencies
         run: |
@@ -25,5 +27,4 @@ jobs:
         env:
           ER_TOKEN: ${{ secrets.ER_TOKEN }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
-          # We'll handle the service account JSON in the next step
         run: python main.py
