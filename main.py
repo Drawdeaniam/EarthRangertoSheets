@@ -13,7 +13,7 @@ ER_TOKEN = os.getenv("ER_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 
 # Tab names for Patrol and Transect data respectively
-PATROL_TAB    = "RP"
+PATROL_TAB    = "Sheet6"
 TRANSECT_TAB  = "WT"
 
 # Set to True to wipe both sheets and rewrite all data from scratch.
