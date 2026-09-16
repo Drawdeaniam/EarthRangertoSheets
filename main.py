@@ -364,8 +364,8 @@ def clean_dataframe(df):
     df["Date"]  = df["Reported_At"].dt.strftime("%d/%m/%Y")
     df["Time"]  = df["Reported_At"].dt.strftime("%I:%M %p")
 
-    # --- Filter: only keep records from 10 March 2026 onwards ---
-    cutoff_date = pd.Timestamp("2026-03-10")
+    # --- Filter: only keep records from 15 September 2026 onwards ---
+    cutoff_date = pd.Timestamp("2026-09-15")
     df = df[df["Reported_At"] >= cutoff_date].copy()
 
     # --- Sort: by day -> officer name (A-Z) -> start time (earliest first) ---
